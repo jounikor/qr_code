@@ -1,0 +1,24 @@
+
+
+QR-Code generator v0.1 (c) 2023 Jouni Korhonen
+
+A python3 package to generate QR-Codes for self learning purposes.
+
+Support:
+* Versions from 1 to 40 are supported.
+* Encoding modes:
+  - Numeric
+  - Alphanumeric
+  - Byte
+  - Kanji in not really there yet and others are just neglected.
+
+Some notes:
+* The quiet zone is not part of the output QR-Code.
+
+Thanks to following great tutorials and online encoders
+for providing testing possibility:
+* https://zavier-henry.medium.com/an-introductory-walkthrough-for-encoding-qr-codes-5a33e1e882b5
+* https://www.thonky.com/qr-code-tutorial/
+* ISO/IEC 18004
+
+

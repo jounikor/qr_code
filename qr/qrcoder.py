@@ -697,7 +697,7 @@ class encode(object):
             bit_unset = True
     
             while (bit_unset):
-                if (self.qr[y,x] == encode.QR_UNUSED):
+                if (self.qr_msk[y,x] == encode.QR_UNUSED):
                     if (bit == 0x00):
                         self.qr[y,x] = encode.QR_BLACK
                     else: 

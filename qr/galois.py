@@ -11,6 +11,8 @@ class galois_field_256(object):
     https://www.thonky.com/qr-code-tutorial/error-correction-coding
     """
     def __init__(self):
+        # Create two arrays for exponent to galois field and vice versa.
+        # These could just be tabled but good to know how they get calculated.
         self.gf_to_ex = bytearray(256)
         self.ex_to_gf = bytearray(256)
         
@@ -29,49 +31,37 @@ class galois_field_256(object):
         for n in range(1,255):
             self.gf_to_ex[self.ex_to_gf[n]] = n
 
-        #for n in range(256):
-        #    print(n,self.ex_to_gf[n],self.gf_to_ex[n])
-
-
-    #
+    # Addition in GF equals to XOR
     def add_sub(self,a : int, b : int) -> int:
         return a ^ b
 
-    #
+    # Multiplication in GF equals to addition of exponents.
     def mul(self, a : int, b : int) -> int:
         n = (self.gf_to_ex[a] + self.gf_to_ex[b]) % 255
         return self.ex_to_gf[n]
 
-    #
+    # Division in GF equals to subtraction of exponents.
     def div(self,a : int, b : int) -> int:
         n = (self.gf_to_ex[a] - self.gf_to_ex[b]) % 255
         return self.ex_to_gf[n]
 
-    #
-    def e2g(self, a, inplace : bool=True) -> int:
+    # Mapping from exponent to GF.
+    def e2g(self, a) -> int:
         if (type(a) is int):
             return self.ex_to_gf[a]
 
-        if (inplace):
-            for i in range(len(a)):
-                a[i] = self.ex_to_gf[a[i]]
-            return a
-        else:
-            return bytearray(map(lambda n:self.ex_to_gf[n],a))
+        return bytearray(map(lambda n:self.ex_to_gf[n],a))
 
-    #
-    def g2e(self, a , inplace : bool=True):
+    # Mapping from GF to exponent.
+    def g2e(self, a):
         if (type(a) is int):
             return self.gf_to_ex[a]
 
-        if (inplace):
-            for i in range(len(a)):
-                a[i] = self.gf_to_ex[a[i]]
-            return a
-        else:
-            return bytearray(map(lambda n:self.gf_to_ex[n],a))
+        return bytearray(map(lambda n:self.gf_to_ex[n],a))
 
 
+#
+# Work in progress example..
 #
 # 3-L generator polynomial
 # a^0x15+ a^8x14+ a^183x13+ a^61x12+ a^91x11+ a^202x10+ a^37x9 +
@@ -84,8 +74,6 @@ class galois_field_256(object):
 # 134,26  
 #
 
-
-
 class generator(object):
     """
     The generator polynomial is created by multiplying
@@ -95,7 +83,6 @@ class generator(object):
 
     For more information see:
     https://www.thonky.com/qr-code-tutorial/how-create-generator-polynomial
-
     """
 
     # x[01-9]{1,3} \+ α
@@ -172,9 +159,15 @@ class polydiv(galois_field_256):
 
         return p[n:n+genlen]
 
+    #
     def polydiv2(self, poly : bytearray, index : int, polylen : int, gen : bytes) -> bytearray:
-
         genlen = len(gen)
+
+        # debug 1
+        for a in poly:
+            print(f"0x{a:02x},",end="")
+
+        print()
 
         # bytearray zeroes each index by default
         p = bytearray(polylen+genlen)
@@ -201,5 +194,12 @@ class polydiv(galois_field_256):
                 g = self.e2g(ex + gen[m] if ex + gen[m] < 256 else ex + gen[m] - 255)
                 r = p[n+m] ^ g
                 p[n+m] = r
+        
+        # debug 2
+        print("result")
+        for a in p[n:n+genlen]:
+            print(f"0x{a:02x},",end="")
+
+        print()
 
         return p[n:n+genlen]

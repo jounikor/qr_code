@@ -2,7 +2,8 @@
 
 QR-Code generator v0.1 (c) 2023 Jouni Korhonen
 
-A python3 package to generate QR-Codes for self learning purposes.
+A python3 package to generate QR-Codes for self learning purposes. Not
+styled or otherwise efficient solution. Sorry for lack of comments :)
 
 Support:
 * Versions from 1 to 40 are supported.
@@ -14,6 +15,17 @@ Support:
 
 Some notes:
 * The quiet zone is not part of the output QR-Code.
+
+How to use:
+
+Import qrcoder from path qr and them look into the test.py how
+to proceed..
+
+The following files constitute the QR-Code generator:
+  qr/galois.py      - Implementation of polynomial division using Galois Fields.
+  qr/phrasecoder.py - Encoding of input phrase.
+  qr/qrcoder.py     - All the rest of QR-Code encoding.
+  qr/qrpenalty.py   - Implements the 4 penalty algorights.
 
 Thanks to following great tutorials and online encoders
 for providing testing possibility:

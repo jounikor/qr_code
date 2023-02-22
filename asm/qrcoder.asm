@@ -32,22 +32,25 @@ main:       exx
             exx
 
             call    gf_init
-            call    decode_qr_template
-            
-            ;ld      de,0000000100000001b
-            ld      de,1111111111111111b
-            call    insert_mask
+            call    decode_qr_template_2
 
-            ld      hl,test_phrase
-            ld      c,55
-            call    polydiv
+            ld      de,0000000100000001b
+            ;ld      de,1111111111111111b
+            call    insert_mask
+            call    print_2
+
+            ;ld      hl,test_phrase
+            ;ld      c,55
+            ;call    polydiv
 
             exx
             pop     bc
             pop     de
             pop     hl
             exx
-
+ll
+            halt
+    jr ll
             ret
 
 
@@ -101,9 +104,9 @@ _copy:      ;
 ;
 insert_mask:
             ld      ix,mask_v_delta
-            ld      hl,QR_TMP_PTR+(8*32)
+            ld      hl,QR_TMP_PTR+(8*30)
             exx
-            ld      hl,QR_TMP_PTR+8+(28*32)
+            ld      hl,QR_TMP_PTR+8+(28*30)
             exx
 
 _loop:      xor     a
@@ -137,7 +140,7 @@ _loop:      xor     a
 _done:      exx
 
             ; go right in qr raster..
-            ld      c,(ix+16)
+            ld      c,(ix+15)
             inc     ix
             add     hl,bc       ; does not affect Z_flag
             jr nz,  _loop
@@ -153,9 +156,50 @@ _done:      exx
 
             ; Tables for advancing in the QR-Code for placing mask bits
 mask_v_delta:
-            db      16,16,16,16,16,16, 224,16,32,16,16,16,16,16,0,0
+            ;db      16,16,16,16,16,16, 224,16,32,16,16,16,16,16,0
+            db      15,15,15,15,15,15, 210,15,30,15,15,15,15,15,0
 mask_h_delta: 
-            db       1, 1, 1, 1, 1, 2, 1, 14,    1, 1, 1, 1, 1, 1,7
+            db       1, 1, 1, 1, 1, 2,   1,14, 1, 1, 1, 1, 1, 1,7
+
+;
+;
+;
+;
+;
+print_2:
+            ld      de,QR_TMP_PTR
+            ld      hl,$5800
+
+            ld      c,24
+_main:
+
+            ld      b,30
+_loop:      ld      a,(de)
+            inc     de
+
+            and     a
+            jr z,   _white
+
+            xor     10000000b
+            jr z,   _black
+
+            ld      a,00001001b
+
+_white:     xor     00111111b
+_black:
+            ld      (hl),a
+            inc     hl
+            djnz    _loop
+           
+            inc     hl
+            inc     hl
+
+            dec     c
+            jr nz,  _main
+
+            ret
+
+
 
 ; Polynomial division.
 ;
@@ -269,6 +313,8 @@ encode_phrase:
             sla     b
             sla     b
 
+    IF 0
+
 decode_qr_template:
             ld      de,qr_template
             ld      hl,QR_TMP_PTR
@@ -324,6 +370,78 @@ qr_template:
             db      10000000b,00001000b,10010101b,01010101b,01010101b,01010101b,01010101b,01000000b
             db      10101010b,10101000b,10010101b,01010101b,01010101b,01010101b,01010101b,01000000b
             db      11111111b
+    ENDIF
+
+decode_qr_template_2:
+            ld      de,qr_template_2
+            ld      hl,QR_TMP_PTR
+
+_loop:      ld      a,(de)
+            inc     de
+            and     a
+            ret z
+
+            ld      c,a
+            ld      b,00111111b
+            and     b
+            ld      b,a
+            xor     c
+            ld      c,0
+
+            jr z,   _white
+            jp p,   _empty
+
+            bit     6,a
+            jr z,   _black
+
+            add     a,a
+            ld      c,a
+_white:
+_black:
+_empty:
+_sta:       ld      (hl),a
+            inc     hl
+            xor     c
+            djnz    _sta
+            jr      _loop
+
+
+qr_template_2:
+            db      $87,$01,$4d,$01,$86,$c4
+            db      $04,$c2,$4d,$01,$c2,$04,$c4
+            db      $82,$c4,$4d,$01,$c2,$82,$c6
+            db      $82,$c4,$4d,$01,$c2,$82,$c6
+            db      $82,$c4,$4d,$01,$c2,$82,$c6
+            db      $04,$c2,$4d,$01,$c2,$04,$c2
+            db      $86,$d0,$86,$c2,$08,$4d,$09,$46
+            
+            db      $81,$5d
+            db      $01,$5d
+            db      $81,$5d
+            db      $01,$5d
+            db      $81,$5d
+            db      $01,$5d
+            db      $81,$5d
+            db      $01,$5d
+            db      $81,$5d
+            db      $01,$5d
+            db      $81,$5d
+            db      $01,$5d
+
+            db      $81,$4d,$85,$45
+
+            db      $08,$81,$4b,$81,$03,$81,$45
+            db      $87,$01,$4c,$c4,$81,$45
+            db      $81,$05,$c2,$4c,$81,$03,$81,$45
+            db      $c2,$82,$c4,$4c,$85,$45
+            db      $c2,$82,$c4,$56
+            db      $c2,$82,$c4,$56
+            db      $81,$05,$81,$56
+            db      $87,$01,$56
+
+            db      $00
+qr_ee:
+
 
 
 
@@ -348,15 +466,7 @@ mask_pattern:       ;
             db       36,0,0,0, 37, 38,0,0,0,0, 39, 40,0, 41, 42, 43
             ;db      '0','1','2','3','4','5','6','7','8','9',':'
             db        0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  44
-            ;ds      6       ; skip ;<=>?@
-alignment_pattern:
-            db      11111100b
-            db      10001100b
-            db      10101100b
-            db      10001100b
-            db      11111100b
-            db      0
-            ;            
+            ds      6       ; skip ;<=>?@
             ;db      'A','B','C','D','E','F','G','H','I'
             db       10, 11, 12, 13, 14, 15, 16, 17, 18
             ;db      'J','K','L','M','N','O','P','Q','R'
@@ -364,17 +474,6 @@ alignment_pattern:
             ;db      'S','T','U','V','W','X','Y','Z' 
             db       28, 29, 30, 31, 32, 33, 34, 35
             ; after this we have 256-90 left for this 256 bytes segment
-finder_pattern:
-            db      11111111b
-            db      10000011b
-            db      10111011b
-            db      10111011b
-            db      10111011b
-            db      10000011b
-            db      11111111b
-            db      0           ; end mark
-
-
 
 
 ; '3-L':eccInfo(3,55,15,1,55,0,0,0b01),  # 29x29

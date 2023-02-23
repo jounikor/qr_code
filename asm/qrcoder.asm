@@ -156,7 +156,6 @@ _done:      exx
 
             ; Tables for advancing in the QR-Code for placing mask bits
 mask_v_delta:
-            ;db      16,16,16,16,16,16, 224,16,32,16,16,16,16,16,0
             db      15,15,15,15,15,15, 210,15,30,15,15,15,15,15,0
 mask_h_delta: 
             db       1, 1, 1, 1, 1, 2,   1,14, 1, 1, 1, 1, 1, 1,7
@@ -213,13 +212,16 @@ _black:
 ; Trashes:
 ;  A,B,C,D,E,H,L
 ;
-
+; Note:
+;  This routine does not handle the case where polynomial
+;  is shorter than generator.
+;
 polydiv:    ;
             ; Move polynomial into to ecc_buffer for division 
             ld      a,55+15
             sub     c
             ld      b,0
-            ld      de,ECC_BUFFER_PTR
+            ld      de,ENC_BUF_PTR
 
             push    de
             ldir
@@ -299,19 +301,188 @@ _div_loop:  ;
 ; - adding extra 7 alignment bits
 ;
 ; Inputs:
-;  HL = prt to NUL terminated string
-;  DE = ptr to destination (must have space for 55+15 octets
+;  IX = prt to NUL terminated string
+;  IY = ptr to destination (must have space for 55+15 octets
 ;
 ; Returns:
-;  none
+;  None
 ;
+; Trashes:
+;
+;
+
 encode_phrase:
+            ; strlen()
+            ld      b,-1
+            push    ix
+            pop     de
 
+            ; B contains the string length
+            ; String must be < 256 bytes
+_strlen:    inc     b
+            ld      a,(de)
+            and     a
+            jr nz,  _strlen
 
-            ld      a,1100000b
-            and     b
-            sla     b
-            sla     b
+            ; 
+            ld      hl,ENC_BUF_PTR
+            push    hl
+
+            ; Bits needed by alphanumeric encoder are:
+            ; B = 4 + C + 11(D DIV 2) + 6(D MOD 2), where
+            ; C = 11, D = strlen(phrase)
+            ;
+            ; In 3-L QR-Code we have 55 octets for code words, which means
+            ; D can be 76 characters.
+
+            ld      c,a
+            or      10000000b
+
+            ; Mode = 0010 (alphanumeric) and 4 upper bits of length (0000b)
+            ld      (hl),0010000b
+            inc     hl
+            ex      de,hl
+
+            srl     c
+            jr z,   _one_char
+            push    af
+_main:      ;
+            ; A  = bit buffer
+            ; DE = destination
+            ; IX = source
+            ;
+            ; get 11 bits encoded 2x character
+            push    de
+            ld      h,HIGH(alnum_map)
+            ld      l,(ix+0)
+            ld      e,(hl)
+            inc     ix
+            call    mul45
+            push    de
+
+            ld      h,HIGH(alnum_map)
+            ld      l,(ix+0)
+            ld      e,(hl)
+            inc     ix
+            call    mul45
+            pop     hl
+            add     hl,de
+            pop     de
+
+            ld      b,3
+            sla     h
+            sla     h
+            sla     h
+            sla     h
+            ; upper 3 bits of the encoded chars
+_bits1:     sla     h
+            adc     a,a
+            jr nc,  _no_ovl1
+            ld      (de),a
+            inc     de
+            ld      a,1
+_no_ovl1:   djnz    _bits1
+            ; lower 8 bits of the encoded chars
+            ld      b,8
+_bits2:     sla     l
+            adc     a,a
+            jr nc,  _no_ovl2
+            ld      (de),a
+            inc     de
+            ld      a,1
+_no_ovl2:   djnz    _bits2
+            ; next 2 chars..
+            dec     c
+            jr nz,  _main
+
+            ; Check if we need to do one more char..
+_one_char:  pop     af
+
+            ; H = 0
+            ld      b,4
+            jr nc,  _no_odd_char
+
+            ld      h,HIGH(alnum_map)
+            ld      l,(ix+0)
+            ld      e,(hl)
+            inc     ix
+
+            ld      b,6+4
+            sla     h
+            ; 6 bits of the encoded chars + terminating 0000b
+_no_odd_char:
+_bits3      sla     h
+            adc     a,a
+            jr nc,  _no_ovl3
+            ld      (de),a
+            inc     de
+            ld      a,1
+_no_ovl3:   djnz    _bits3
+
+            ; Align to byte
+            jr c,   _aligned
+_align8:    add     a,a
+            jr nc,  _align8
+            ld      (de),a
+            inc     de
+_aligned:
+            ; Check if padding is required..
+            pop     hl
+            ex      de,hl
+            ccf
+            sbc     hl,de
+            ld      a,l         ; H = 0 always..
+            and     a
+            jr z,   _no_alignment
+
+            ;
+            ld      b,a
+            ld      a,11101100b
+_pad:       ld      (de),a
+            xor     11111101b
+            djnz    _pad
+
+_no_alignment:
+            ret
+
+;
+; Multiply by 45.
+; 
+; Inputs:
+;  E = value (0 <= C < 45) to multiply
+;
+; Returns:
+;  DE = result
+;
+; Trashes:
+;  DE
+;
+;
+
+mul45:      push    hl
+            ld      h,0
+            ld      l,e
+
+            push    hl      ; 1x to stack
+            ; 32x
+            add     hl,hl
+            push    hl      ; 2x to stack
+            add     hl,hl
+            add     hl,hl
+            push    hl      ; 8x to stack
+            add     hl,hl
+            add     hl,hl
+            pop     de
+            add     hl,de
+            pop     de
+            add     hl,de
+            pop     de
+            add     hl,de
+            ex      de,hl
+
+            pop     hl
+            ret
+
 
     IF 0
 
@@ -394,6 +565,7 @@ _loop:      ld      a,(de)
             bit     6,a
             jr z,   _black
 
+            ; black-white alternate
             add     a,a
             ld      c,a
 _white:
@@ -405,7 +577,13 @@ _sta:       ld      (hl),a
             djnz    _sta
             jr      _loop
 
-
+; Format of the RLE:
+;  00 nnnnnn -> white (00000000b), 1 < n < 63
+;  01 nnnnnn -> empty (01000000b), 1 < n < 63
+;  10 nnnnnn -> black (10000000b), 1 < n < 63
+;  11 nnnnnn -> black-white alternating, 1 < n < 63
+;  00 000000 -> end mark
+;
 qr_template_2:
             db      $87,$01,$4d,$01,$86,$c4
             db      $04,$c2,$4d,$01,$c2,$04,$c4
@@ -415,18 +593,9 @@ qr_template_2:
             db      $04,$c2,$4d,$01,$c2,$04,$c2
             db      $86,$d0,$86,$c2,$08,$4d,$09,$46
             
-            db      $81,$5d
-            db      $01,$5d
-            db      $81,$5d
-            db      $01,$5d
-            db      $81,$5d
-            db      $01,$5d
-            db      $81,$5d
-            db      $01,$5d
-            db      $81,$5d
-            db      $01,$5d
-            db      $81,$5d
-            db      $01,$5d
+            db      $81,$5d,$01,$5d,$81,$5d,$01,$5d
+            db      $81,$5d,$01,$5d,$81,$5d,$01,$5d
+            db      $81,$5d,$01,$5d,$81,$5d,$01,$5d
 
             db      $81,$4d,$85,$45
 
@@ -440,9 +609,6 @@ qr_template_2:
             db      $87,$01,$56
 
             db      $00
-qr_ee:
-
-
 
 
             org     ($+255) & 0xff00
@@ -488,7 +654,7 @@ mask_pattern:       ;
 ; 
 
 
-ECC_BUFFER_PTR:
+ENC_BUF_PTR:
             ds  55+15       ; code words + ecc words
 
 
@@ -505,6 +671,8 @@ QR_DST_PTR: ds      QR_DIM*4
 
             org ($+255) & 0xff00
 QR_TMP_PTR: ds      32*QR_DIM
+
+
 
 
 test_phrase:        ; 55

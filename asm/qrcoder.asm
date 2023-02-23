@@ -302,7 +302,6 @@ _div_loop:  ;
 ;
 ; Inputs:
 ;  IX = prt to NUL terminated string
-;  IY = ptr to destination (must have space for 55+15 octets
 ;
 ; Returns:
 ;  None
@@ -329,20 +328,29 @@ _strlen:    inc     b
             push    hl
 
             ; Bits needed by alphanumeric encoder are:
-            ; B = 4 + C + 11(D DIV 2) + 6(D MOD 2), where
-            ; C = 11, D = strlen(phrase)
+            ; b = 4 + c + 11(d DIV 2) + 6(d MOD 2), where
+            ; where c = 9, d = strlen(phrase)
             ;
             ; In 3-L QR-Code we have 55 octets for code words, which means
             ; D can be 76 characters.
+            ;
+            ; B = string len in octets, 9 bits but only 7 bits have used.. 
+            ; 
 
-            ld      c,a
-            or      10000000b
-
-            ; Mode = 0010 (alphanumeric) and 4 upper bits of length (0000b)
-            ld      (hl),0010000b
+            ld      a,b
+            rlca
+            rlca
+            rlca
+            and     00000111b
+            or      00100000b
+            ld      (hl),a
             inc     hl
-            ex      de,hl
+            ld      a,b
+            and     00011111b
+            or      00100000b
 
+            ex      de,hl
+            ld      c,b
             srl     c
             jr z,   _one_char
             push    af

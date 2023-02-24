@@ -39,6 +39,12 @@ main:       exx
             call    insert_mask
             call    print_2
 
+            ld      ix,test_string
+            ld      a,33
+            call    encode_phrase
+
+
+
             ;ld      hl,test_phrase
             ;ld      c,55
             ;call    polydiv
@@ -301,83 +307,76 @@ _div_loop:  ;
 ; - adding extra 7 alignment bits
 ;
 ; Inputs:
-;  IX = prt to NUL terminated string
+;  IX = prt to string phrase
+;  A  = string length
 ;
 ; Returns:
 ;  None
 ;
 ; Trashes:
-;
+;  A,BC,DE,HL,IX
 ;
 
 encode_phrase:
-            ; strlen()
-            ld      b,-1
-            push    ix
-            pop     de
-
-            ; B contains the string length
-            ; String must be < 256 bytes
-_strlen:    inc     b
-            ld      a,(de)
-            and     a
-            jr nz,  _strlen
-
-            ; 
-            ld      hl,ENC_BUF_PTR
-            push    hl
-
+            ld      de,ENC_BUF_PTR
+            push    de
+            ;
             ; Bits needed by alphanumeric encoder are:
             ; b = 4 + c + 11(d DIV 2) + 6(d MOD 2), where
             ; where c = 9, d = strlen(phrase)
             ;
             ; In 3-L QR-Code we have 55 octets for code words, which means
-            ; D can be 76 characters.
+            ; D can be 76 characters. That fits in to 9 bit length.
             ;
-            ; B = string len in octets, 9 bits but only 7 bits have used.. 
-            ; 
+            ; B = string len in octets, 9 bits but only 7 bits can be used.. 
+            ;     i.e., 00 nnnnnnn -> A = 0nn nnnnn 
 
+            ld      b,a
+            rlca
+            rlca
+            rlca
+            and     00000011b
+            or      00100000b  ; mode = 0010b and 0 + 0nn of length
+            ld      (de),a
+            inc     de
             ld      a,b
-            rlca
-            rlca
-            rlca
-            and     00000111b
-            or      00100000b
-            ld      (hl),a
-            inc     hl
-            ld      a,b
-            and     00011111b
-            or      00100000b
+            and     00011111b   ; remainin 5 bits of length
+            or      00100000b   ; stop bit
 
-            ex      de,hl
             ld      c,b
-            srl     c
-            jr z,   _one_char
-            push    af
 _main:      ;
-            ; A  = bit buffer
+            ; A  = bit buffer with stop bit. C_flag=1 when A becomess full
+            ; C  = number of character pairs
             ; DE = destination
             ; IX = source
+            ; C_flag = pushed into stack whether there is odd number of 
+            ;          characters.. if even C_flag = 0
             ;
             ; get 11 bits encoded 2x character
-            push    de
-            ld      h,HIGH(alnum_map)
-            ld      l,(ix+0)
-            ld      e,(hl)
-            inc     ix
-            call    mul45
-            push    de
+            ld      b,4
+            ld      h,0
 
+            dec     c
+            jr z,   _add_odd_char
+            jp m,   _no_odd_char
+            dec     c
+
+            push    de
             ld      h,HIGH(alnum_map)
             ld      l,(ix+0)
             ld      e,(hl)
             inc     ix
             call    mul45
-            pop     hl
+
+            ld      l,(ix+0)
+            ld      l,(hl)
+            inc     ix
+            ld      h,0
             add     hl,de
             pop     de
 
             ld      b,3
+            sla     h
             sla     h
             sla     h
             sla     h
@@ -400,24 +399,20 @@ _bits2:     sla     l
             ld      a,1
 _no_ovl2:   djnz    _bits2
             ; next 2 chars..
-            dec     c
-            jr nz,  _main
+            jr      _main
 
-            ; Check if we need to do one more char..
-_one_char:  pop     af
 
-            ; H = 0
-            ld      b,4
-            jr nc,  _no_odd_char
-
+_add_odd_char:
+            ; We need to do one more char..
             ld      h,HIGH(alnum_map)
             ld      l,(ix+0)
-            ld      e,(hl)
+            ld      h,(hl)
             inc     ix
 
+            ; 6 bits of the encoded chars + terminating 0000b
             ld      b,6+4
             sla     h
-            ; 6 bits of the encoded chars + terminating 0000b
+            sla     h
 _no_odd_char:
 _bits3      sla     h
             adc     a,a
@@ -436,17 +431,21 @@ _align8:    add     a,a
 _aligned:
             ; Check if padding is required..
             pop     hl
+            push    de
             ex      de,hl
             ccf
             sbc     hl,de
-            ld      a,l         ; H = 0 always..
+            ld      a,55
+            sub     l
             and     a
+            pop     de
             jr z,   _no_alignment
 
             ;
             ld      b,a
             ld      a,11101100b
 _pad:       ld      (de),a
+            inc     de
             xor     11111101b
             djnz    _pad
 
@@ -474,8 +473,8 @@ mul45:      push    hl
             push    hl      ; 1x to stack
             ; 32x
             add     hl,hl
-            push    hl      ; 2x to stack
             add     hl,hl
+            push    hl      ; 4x to stack
             add     hl,hl
             push    hl      ; 8x to stack
             add     hl,hl
@@ -693,6 +692,10 @@ test_phrase:        ; 55
 
 ; should produce ECC
 ; 0x22,0xa3,0x53,0x01,0xa3,0x34,0xfc,0x98,0x55,0xf7,0x9d,0x8c,0xa0,0xad,0x90
+
+
+test_string:        ; 33 chars
+            db      "HTTP://WWW.DEADCODERSSOCIETY.NET/"
 
 
     END main

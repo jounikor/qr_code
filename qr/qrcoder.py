@@ -813,6 +813,15 @@ class encode(object):
         pc = phrasecoder.encode(mode=mode_,version=self.ecc_info.version)
         ph = pc.encode_phrase(phrase,self.ecc_info.data_codewords)
         dat,ecc = self.calc_code_ecc_arrays(ph)
+
+        for n in dat[0]:
+            print(f"{n:02x},",end="")
+
+        print()
+
+
+
+
         res = self.interleave_code_ecc_arrays(dat,ecc)
     
         self.encode_layout(res)

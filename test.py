@@ -4,11 +4,11 @@ from PIL import Image as im
 
 
 qr = q.encode("3-L")
-qr_code = qr.generate_qr_code("https://board.esxdos.org/")
-print(qr.get_mask())
+#qr_code = qr.generate_qr_code("https://board.esxdos.org/")
+#print(qr.get_mask())
 
-ima = im.fromarray(qr_code, mode="P")
-ima.show()
+#ima = im.fromarray(qr_code, mode="P")
+#ima.show()
 
 qr_code = qr.generate_qr_code("http://www.deadcoderssociety.net/")
 print(qr.get_mask())

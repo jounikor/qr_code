@@ -814,8 +814,15 @@ class encode(object):
         ph = pc.encode_phrase(phrase,self.ecc_info.data_codewords)
         dat,ecc = self.calc_code_ecc_arrays(ph)
 
+        print("code words")
+
         for n in dat[0]:
             print(f"{n:02x},",end="")
+
+        print("ECC")
+        for n in ecc[0]:
+            print(f"{n:02x},",end="")
+
 
         print()
 

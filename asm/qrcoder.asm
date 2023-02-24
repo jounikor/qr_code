@@ -40,14 +40,13 @@ main:       exx
             call    print_2
 
             ld      ix,test_string
+            ld      de,PHR_BUF_PTR
             ld      a,33
             call    encode_phrase
-
-
-
             ;ld      hl,test_phrase
-            ;ld      c,55
-            ;call    polydiv
+            ld      hl,PHR_BUF_PTR
+            ld      de,ENC_BUF_PTR
+            call    polydiv
 
             exx
             pop     bc
@@ -209,34 +208,34 @@ _black:
 ; Polynomial division.
 ;
 ; Inputs:
-;  C  = length of the polynomial, i.e. the encoded phrase.
-;  HL = ptr to polynomial (size len poly)
+;  HL = ptr to polynomial (size of 55 octets)
+;  DE = ptr to encoding buffer (size of 55+15 octets)
 ;
 ; Returns:
-;  HL = ptr to ecc code words (15 of those)
+;  DE = start of ecc words
 ;
 ; Trashes:
-;  A,B,C,D,E,H,L
+;  A,B,C,H,L
 ;
 ; Note:
 ;  This routine does not handle the case where polynomial
 ;  is shorter than generator.
-;
+;  Everything is based on 3-L assumptions.
+
 polydiv:    ;
             ; Move polynomial into to ecc_buffer for division 
-            ld      a,55+15
-            sub     c
-            ld      b,0
-            ld      de,ENC_BUF_PTR
-
-            push    de
+            push    hl          ; polynomial
+            push    de          ; code words
+            push    de          ; ecc words
+            ld      bc,55
             ldir
-            
+
             ; Clear the rest of the ecc_buffer
-_clear:     ld      (hl),0
-            inc     hl
-            dec     a
-            jr nz,  _clear
+            xor     a
+            ld      b,15
+_clear:     ld      (de),a
+            inc     de
+            djnz    _clear
 
             ; polynomial division main loop..
             ld      c,55            ; "polylen"
@@ -284,10 +283,16 @@ _div_loop:  ;
 
             ;
             ;
-            pop     hl
+            pop     hl          ; ecc words
             dec     c
             jr nz,  _div_main
-            
+
+            ; move poly at the front of ECC
+            pop     de          ; code words
+            pop     hl          ; polynomial
+            ld      c,55
+            ldir
+
             ret
 
 
@@ -308,6 +313,7 @@ _div_loop:  ;
 ;
 ; Inputs:
 ;  IX = prt to string phrase
+;  DE = ptr to dst buffer (size of 55 octets)
 ;  A  = string length
 ;
 ; Returns:
@@ -318,7 +324,6 @@ _div_loop:  ;
 ;
 
 encode_phrase:
-            ld      de,ENC_BUF_PTR
             push    de
             ;
             ; Bits needed by alphanumeric encoder are:
@@ -661,6 +666,8 @@ mask_pattern:       ;
 ; 
 
 
+PHR_BUF_PTR:
+            ds  55
 ENC_BUF_PTR:
             ds  55+15       ; code words + ecc words
 

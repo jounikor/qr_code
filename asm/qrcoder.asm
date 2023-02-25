@@ -11,16 +11,17 @@
 
 QR_DST_ADDR equ $c000
 
-QR_WHITE    equ     0x00
-QR_BLACK    equ     0xff
-QR_WHITE_TMP    equ 0x01
-QR_BLACK_TMP    equ 0x02
-QR_EMPTY    equ     0x04
+QR_WHITE        equ     00000000b
+QR_BLACK        equ     10000000b
+QR_EMPTY        equ     01000000b
+QR_DIR_UP       equ     0
+QR_DIR_DOWN     equ     1
 
-
-QR_DIM      equ     29
-QR_VER      equ     3
-QR_LEV      equ     'L'
+QR_DIM          equ     29
+QR_VER          equ     3
+QR_LEV          equ     'L'
+QR_CWDS_EWDS    equ     55+15
+QR_CWDS         equ     55            
 
             org $8000
 
@@ -32,21 +33,33 @@ main:       exx
             exx
 
             call    gf_init
-            call    decode_qr_template_2
-
-            ld      de,0000000100000001b
-            ;ld      de,1111111111111111b
-            call    insert_mask
             call    print_2
 
             ld      ix,test_string
-            ld      de,PHR_BUF_PTR
             ld      a,33
             call    encode_phrase
-            ;ld      hl,test_phrase
-            ld      hl,PHR_BUF_PTR
-            ld      de,ENC_BUF_PTR
             call    polydiv
+            ; There is no need to intealeave 3-L QR-Code
+            ;call    interleave
+
+            ; here be the masking 8x and encoding layout..
+            ld      b,8         ;
+            ;ld     ix,qr_penalties
+_mask_loop:
+            push    bc
+            call    decode_qr_template
+            ld      de,0000000000000000b
+            call    insert_mask
+            call    encode_layout
+            ;call    encode_mask
+            ;call    calc_penalties
+
+            pop     bc
+            djnz    _mask_loop
+
+            ;call   encode_final
+            ;ld     de,(qr_mask)
+            ;call   insert_mask
 
             exx
             pop     bc
@@ -223,6 +236,10 @@ _black:
 ;  Everything is based on 3-L assumptions.
 
 polydiv:    ;
+
+            ld      hl,PHR_BUF_PTR
+            ld      de,ENC_BUF_PTR
+            ;
             ; Move polynomial into to ecc_buffer for division 
             push    hl          ; polynomial
             push    de          ; code words
@@ -324,6 +341,7 @@ _div_loop:  ;
 ;
 
 encode_phrase:
+            ld      de,PHR_BUF_PTR
             push    de
             ;
             ; Bits needed by alphanumeric encoder are:
@@ -405,7 +423,6 @@ _bits2:     sla     l
 _no_ovl2:   djnz    _bits2
             ; next 2 chars..
             jr      _main
-
 
 _add_odd_char:
             ; We need to do one more char..
@@ -495,68 +512,129 @@ mul45:      push    hl
             pop     hl
             ret
 
+;
+; Inputs:
+;  HL = ptr to (interleaved) code words and ecc words
+;  DE = ptr to temporary QR-Code last byte
+;
+; Returns:
+;  None
+;
+; Trashes:
+;  A,BC,DE,HL,
+;
+;
+encode_layout:
+            ; init position statemachine
+            call    init_next
 
-    IF 0
+            ld      de,ENC_BUF_PTR
+            ; Last pixel/module in the QR-Code template
+            ld      hl,QR_TMP_PTR+(QR_DIM+1)*QR_DIM+QR_DIM-1
+            ld      b,QR_CWDS_EWDS
 
+            ld      a,10000000b
+_main:      add     a,a     
+            jr nz,  _skip1
+            ld      a,(de)  
+            inc     de
+            adc     a,a     ; add stop bit and move bit 7 into C_flag
+_skip1:
+
+
+            ; add 7 pixels/modules of padding..
+
+            ret
+
+
+
+
+;
+init_next:
+            xor     a
+            ld      (qr_stm),a
+            ld      (qr_dir),a
+            ld      a,QR_DIM-1
+            ld      (qr_y),a
+            ld      (qr_x),a
+            ret
+
+;
+; Inputs:
+;  HL = ptr to temporary (octet aligned) qr buffer
+;
+; Returns:
+;  HL = ptr to new position in temporary qr buffer
+;
+; Trashes:
+;  None
+;
+pos_next:
+            push    af
+            push    de
+            ld      de,QR_DIM-1
+
+            ld      a,(qr_dir)
+            and     a
+            jr nz,  _dir_down
+
+            ld      a,(qr_stm)
+            add     a,10000000b
+            ld      (qr_stm),a
+            jr c,   _up
+
+            ld      a,(qr_y)
+            sub     1           ; Need to change C_flag
+            jr nc,  _no_ovl1
+            
+            ; Go left
+            dec     hl
+            ld      a,(qr_x)
+            dec     a
+            ld      (qr_x),a
+            ; Change direction down
+            ld      a,(qr_dir)
+            cpl
+            ld      (qr_dir),a
+            jr      _up
+
+            ; one row up
+_no_ovl1:   sbc     hl,de
+
+_up:
+
+
+_dir_down:
+            pop     de
+            pop     af
+
+            ret
+
+
+;
+; Decode QR-Code basic template. It includes:
+;  - alignment patterns
+;  - positional patterns
+;  - dark module
+;  - reserved areas
+;  - sync patterns
+;
+; The template does not include:
+;  - mask patterns (inserted with a separate function)
+;
+; Note that the area used by the template is:
+;  - horizontal QR_DIM+1 (i.e. in 3-L case 30)
+;  - vertical   QR_DIM (i.e. in 3-L case 29)
+; When processing inside the template you MUST ignore the 
+; one column outside the QR_DIM.
+;
+; Encoding on each octet within the template:
+;  00000000b = white pixel/module
+;  10000000b = black pixel/module
+;  01000000b = empty pixel/module available for encoded pixels
+;
 decode_qr_template:
             ld      de,qr_template
-            ld      hl,QR_TMP_PTR
-_main:      ld      a,(de)
-            cp      11111111b
-            ret z   
-            ;
-            inc     de
-            ld      c,a
-            ld      b,4
-_loop:      ld      a,11000000b
-            and     c
-            ld      (hl),a
-            inc     hl
-            sla     c
-            sla     c
-            djnz    _loop
-            jr      _main
-
-qr_template:
-            ; 00b = white -> 00000000b
-            ; 01b = empty -> 01000000b
-            ; 10b = black -> 10000000b
-            ; 11b = invalid
-            ;
-            db      10101010b,10101000b,10010101b,01010101b,01010101b,01001010b,10101010b,10000000b
-            db      10000000b,00001000b,10010101b,01010101b,01010101b,01001000b,00000000b,10000000b
-            db      10001010b,10001000b,10010101b,01010101b,01010101b,01001000b,10101000b,10000000b
-            db      10001010b,10001000b,10010101b,01010101b,01010101b,01001000b,10101000b,10000000b
-            db      10001010b,10001000b,10010101b,01010101b,01010101b,01001000b,10101000b,10000000b
-            db      10000000b,00001000b,10010101b,01010101b,01010101b,01001000b,00000000b,10000000b
-            db      10101010b,10101000b,10001000b,10001000b,10001000b,10001010b,10101010b,10000000b
-            db      00000000b,00000000b,10010101b,01010101b,01010101b,01000000b,00000000b,00000000b
-            db      10101010b,10101010b,10010101b,01010101b,01010101b,01101010b,10101010b,10000000b
-            db      01010101b,01010001b,01010101b,01010101b,01010101b,01010101b,01010101b,01000000b
-            db      01010101b,01011001b,01010101b,01010101b,01010101b,01010101b,01010101b,01000000b
-            db      01010101b,01010001b,01010101b,01010101b,01010101b,01010101b,01010101b,01000000b
-            db      01010101b,01011001b,01010101b,01010101b,01010101b,01010101b,01010101b,01000000b
-            db      01010101b,01010001b,01010101b,01010101b,01010101b,01010101b,01010101b,01000000b
-            db      01010101b,01011001b,01010101b,01010101b,01010101b,01010101b,01010101b,01000000b
-            db      01010101b,01010001b,01010101b,01010101b,01010101b,01010101b,01010101b,01000000b
-            db      01010101b,01011001b,01010101b,01010101b,01010101b,01010101b,01010101b,01000000b
-            db      01010101b,01010001b,01010101b,01010101b,01010101b,01010101b,01010101b,01000000b
-            db      01010101b,01011001b,01010101b,01010101b,01010101b,01010101b,01010101b,01000000b
-            db      01010101b,01010001b,01010101b,01010101b,01010101b,01010101b,01010101b,01000000b
-            db      01010101b,01011001b,01010101b,01010101b,01010101b,10101010b,10010101b,01000000b
-            db      00000000b,00000000b,10010101b,01010101b,01010101b,10000000b,10010101b,01000000b
-            db      10101010b,10101000b,10010101b,01010101b,01010101b,10001000b,10010101b,01000000b
-            db      10000000b,00001000b,10010101b,01010101b,01010101b,10000000b,10010101b,01000000b
-            db      10001010b,10001000b,10010101b,01010101b,01010101b,10101010b,10010101b,01000000b
-            db      10001010b,10001000b,10010101b,01010101b,01010101b,01010101b,01010101b,01000000b
-            db      10001010b,10001000b,10010101b,01010101b,01010101b,01010101b,01010101b,01000000b
-            db      10000000b,00001000b,10010101b,01010101b,01010101b,01010101b,01010101b,01000000b
-            db      10101010b,10101000b,10010101b,01010101b,01010101b,01010101b,01010101b,01000000b
-            db      11111111b
-    ENDIF
-
-decode_qr_template_2:
-            ld      de,qr_template_2
             ld      hl,QR_TMP_PTR
 
 _loop:      ld      a,(de)
@@ -589,6 +667,40 @@ _sta:       ld      (hl),a
             djnz    _sta
             jr      _loop
 
+
+            org     ($+255) & 0xff00
+alnum_map:
+patterns:
+            ; Generator polynomial for 3-L
+gen_15:     db      8,183,61,91,202,37,51,58,58,237,140,124,5,99,105
+qr_stm:     db      0                       ;
+mask_pattern:       ;
+            ;       01234567  89abcde7      ; Last bit 7 is for horiz cases 
+            db      11101111b,10001001b     ; L = 1, mask 0
+            db      11100101b,11100111b
+            db      11111011b,01010101b
+            db      11110001b,00111011b
+            db      11001100b,01011110b
+            db      11000110b,00110000b
+            db      11011000b,10000010b
+            db      11010010b,11101100b
+            ds      32-15-1-16              ; space for ascii till space
+            ;db      ' ',0,0,0,'$','%',0,0,0,0,'*','+',0,'-','.','/'
+            db       36,0,0,0, 37, 38,0,0,0,0, 39, 40,0, 41, 42, 43
+            ;db      '0','1','2','3','4','5','6','7','8','9',':'
+            db        0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  44
+qr_y:       db      0
+qr_x:       db      0
+qr_dir:     db      0
+            ds      6-3       ; skip ;<=>?@
+            ;db      'A','B','C','D','E','F','G','H','I'
+            db       10, 11, 12, 13, 14, 15, 16, 17, 18
+            ;db      'J','K','L','M','N','O','P','Q','R'
+            db       19, 20, 21, 22, 23, 24, 25, 26, 27
+            ;db      'S','T','U','V','W','X','Y','Z' 
+            db       28, 29, 30, 31, 32, 33, 34, 35
+            ; after this we have 256-90 left for this 256 bytes segment
+
 ; Format of the RLE:
 ;  00 nnnnnn -> white (00000000b), 1 < n < 63
 ;  01 nnnnnn -> empty (01000000b), 1 < n < 63
@@ -596,7 +708,7 @@ _sta:       ld      (hl),a
 ;  11 nnnnnn -> black-white alternating, 1 < n < 63
 ;  00 000000 -> end mark
 ;
-qr_template_2:
+qr_template:
             db      $87,$01,$4d,$01,$86,$c4
             db      $04,$c2,$4d,$01,$c2,$04,$c4
             db      $82,$c4,$4d,$01,$c2,$82,$c6
@@ -621,56 +733,14 @@ qr_template_2:
             db      $87,$01,$56
 
             db      $00
+qr_end:
 
 
-            org     ($+255) & 0xff00
-alnum_map:
-patterns:
-            ; Generator polynomial for 3-L
-gen_15:     db      8,183,61,91,202,37,51,58,58,237,140,124,5,99,105
-            db      0                       ; make mask_pattern start even
-mask_pattern:       ;
-            ;       01234567  89abcde7      ; Last bit 7 is for horiz cases 
-            db      11101111b,10001001b     ; L = 1, mask 0
-            db      11100101b,11100111b
-            db      11111011b,01010101b
-            db      11110001b,00111011b
-            db      11001100b,01011110b
-            db      11000110b,00110000b
-            db      11011000b,10000010b
-            db      11010010b,11101100b
-            ds      32-15-1-16              ; space for ascii till space
-            ;db      ' ',0,0,0,'$','%',0,0,0,0,'*','+',0,'-','.','/'
-            db       36,0,0,0, 37, 38,0,0,0,0, 39, 40,0, 41, 42, 43
-            ;db      '0','1','2','3','4','5','6','7','8','9',':'
-            db        0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  44
-            ds      6       ; skip ;<=>?@
-            ;db      'A','B','C','D','E','F','G','H','I'
-            db       10, 11, 12, 13, 14, 15, 16, 17, 18
-            ;db      'J','K','L','M','N','O','P','Q','R'
-            db       19, 20, 21, 22, 23, 24, 25, 26, 27
-            ;db      'S','T','U','V','W','X','Y','Z' 
-            db       28, 29, 30, 31, 32, 33, 34, 35
-            ; after this we have 256-90 left for this 256 bytes segment
 
-
-; '3-L':eccInfo(3,55,15,1,55,0,0,0b01),  # 29x29
-;
-; 1 group #1
-; 1 block in group #1
-; 55 code words
-; 15 ecc words
-; level 0b01
-; 7 alignment bits
-; 1 alignment patter in (6,22)
-; 
-
-
-PHR_BUF_PTR:
-            ds  55
+PHR_BUF_PTR:                    ; encode phrase here
+            ds  QR_CWDS
 ENC_BUF_PTR:
-            ds  55+15       ; code words + ecc words
-
+            ds  QR_CWDS_EWDS    ; code words + ecc words
 
 
 

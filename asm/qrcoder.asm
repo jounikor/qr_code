@@ -33,7 +33,6 @@ main:       exx
             exx
 
             call    gf_init
-            call    print_2
 
             ld      ix,test_string
             ld      a,33
@@ -60,6 +59,7 @@ _mask_loop:
             ;call   encode_final
             ;ld     de,(qr_mask)
             ;call   insert_mask
+            call    print_2
 
             exx
             pop     bc
@@ -578,33 +578,74 @@ pos_next:
             and     a
             jr nz,  _dir_down
 
+_dir_up:    ;
             ld      a,(qr_stm)
             add     a,10000000b
             ld      (qr_stm),a
             jr c,   _up
 
-            ld      a,(qr_y)
-            sub     1           ; Need to change C_flag
-            jr nc,  _no_ovl1
-            
-            ; Go left
-            dec     hl
+            ; move left
             ld      a,(qr_x)
             dec     a
             ld      (qr_x),a
-            ; Change direction down
+
+            dec     hl
+            jr      _next
+
+_up:        ld      a,(qr_y)
+            sub     1
+            jr c,   _change_dir
+
+            ld      (qr_y),a
+            ld      a,(qr_x)
+            inc     a
+            ld      (qr_x),a
+
+            ld      de,QR_DIM-1     ; move x one right at the same time
+            sbc     hl,bc
+            jr      _next
+
+_dir_down:  ;
+            ld      a,(qr_stm)
+            add     a,10000000b
+            ld      (qr_stm),a
+            jr c,   _down
+
+            ; move left
+            ld      a,(qr_x)
+            dec     a
+            ld      (qr_x),a
+
+            dec     hl
+            jr      _next
+
+_down:      ld      a,(qr_y)
+            inc     a
+            cp      QR_DIM+1
+            jr nc,  _change_dir
+
+            ld      (qr_y),a
+            ld      a,(qr_x)
+            dec     a
+            ld      (qr_x),a
+
+            ld      de,QR_DIM-1     ; move x one right at the same time
+            add     hl,bc
+            jr      _next
+
+_change_dir:
             ld      a,(qr_dir)
             cpl
             ld      (qr_dir),a
-            jr      _up
 
-            ; one row up
-_no_ovl1:   sbc     hl,de
+            ; move left as at the same time
+            ld      a,(qr_x)
+            dec     a
+            ld      (qr_x),a
 
-_up:
+            dec     hl
 
-
-_dir_down:
+_next:      ;
             pop     de
             pop     af
 
@@ -732,7 +773,18 @@ qr_template:
             db      $81,$05,$81,$56
             db      $87,$01,$56
 
-            db      $00
+            db      $00     ; end mark
+
+qr_mov_tab:
+
+
+
+
+
+            db      0       ; end mark
+
+
+
 qr_end:
 
 

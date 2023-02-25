@@ -621,7 +621,7 @@ _dir_down:  ;
 
 _down:      ld      a,(qr_y)
             inc     a
-            cp      QR_DIM+1
+            cp      QR_DIM
             jr nc,  _change_dir
 
             ld      (qr_y),a

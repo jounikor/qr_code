@@ -20,7 +20,7 @@ QR_DIR_DOWN     equ     1
 QR_DIM          equ     29
 QR_VER          equ     3
 QR_LEV          equ     'L'
-QR_CWDS_EWDS    equ     55+15
+QR_CWDS_EWDS    equ     (55+15)*8
 QR_CWDS         equ     55            
 
             org $8000
@@ -47,14 +47,15 @@ main:       exx
 _mask_loop:
             push    bc
             call    decode_qr_template
-            ld      de,0000000000000000b
+            ;ld      de,0000000000000000b
+            ld      de,1111111111111111b
             call    insert_mask
             call    encode_layout
             ;call    encode_mask
             ;call    calc_penalties
 
             pop     bc
-            djnz    _mask_loop
+            ;djnz    _mask_loop
 
             ;call   encode_final
             ;ld     de,(qr_mask)
@@ -200,6 +201,7 @@ _loop:      ld      a,(de)
             xor     10000000b
             jr z,   _black
 
+            ;and     00111111b
             ld      a,00001001b
 
 _white:     xor     00111111b
@@ -530,26 +532,61 @@ encode_layout:
 
             ld      de,ENC_BUF_PTR
             ; Last pixel/module in the QR-Code template
-            ld      hl,QR_TMP_PTR+(QR_DIM+1)*QR_DIM+QR_DIM-1
-            ld      b,QR_CWDS_EWDS
+            ld      c,7
 
             ld      a,10000000b
-_main:      add     a,a     
+_main:      ld      b,80            ; 7*80 = 560 = (8*(55+15))
+_loop:      add     a,a     
             jr nz,  _skip1
             ld      a,(de)  
             inc     de
             adc     a,a     ; add stop bit and move bit 7 into C_flag
-_skip1:
 
+_skip1:     ; if C_flag = 0 then a white pixel, if 1 then a black pixel
+            push    bc
+            jr c,   _black
+            ld      c,QR_WHITE
+            jr      _skip2
+_black:     ld      c,QR_BLACK
+_skip2:     ;
+            ; Check if need to skip this module/pixel..
+            push    af
+            ld      a,QR_EMPTY
+
+_while:     ;
+            cp      (hl)
+            ;ld      (hl),00101000b
+            call nz,    pos_next
+            jr nz,  _while
+            ld      (hl),c
+            call z, pos_next
+            
+            pop     af
+            pop     bc
+
+            djnz    _loop
+            dec     c
+            jr nz,  _main
 
             ; add 7 pixels/modules of padding..
+            ld      b,7
+_pad:       ld      (hl),QR_WHITE
+            call    pos_next
+            djnz    _pad
 
             ret
 
-
-
-
 ;
+; Inputs:
+;  None
+;
+; Returns:
+;  HL = ptr to last octet in the template QR-Code array
+;
+; Trashes:
+;  A
+;
+
 init_next:
             xor     a
             ld      (qr_stm),a
@@ -557,6 +594,7 @@ init_next:
             ld      a,QR_DIM-1
             ld      (qr_y),a
             ld      (qr_x),a
+            ld      hl,QR_TMP_PTR+(QR_DIM+1)*(QR_DIM-1)+(QR_DIM-1)
             ret
 
 ;
@@ -567,12 +605,11 @@ init_next:
 ;  HL = ptr to new position in temporary qr buffer
 ;
 ; Trashes:
-;  None
+;  None, keeps flags as when called.
 ;
 pos_next:
             push    af
             push    de
-            ld      de,QR_DIM-1
 
             ld      a,(qr_dir)
             and     a
@@ -587,7 +624,6 @@ _dir_up:    ;
             ; move left
             ld      a,(qr_x)
             dec     a
-            ld      (qr_x),a
 
             dec     hl
             jr      _next
@@ -599,10 +635,9 @@ _up:        ld      a,(qr_y)
             ld      (qr_y),a
             ld      a,(qr_x)
             inc     a
-            ld      (qr_x),a
 
-            ld      de,QR_DIM-1     ; move x one right at the same time
-            sbc     hl,bc
+            ld      de,QR_DIM       ; move x one right at the same time
+            sbc     hl,de
             jr      _next
 
 _dir_down:  ;
@@ -614,7 +649,6 @@ _dir_down:  ;
             ; move left
             ld      a,(qr_x)
             dec     a
-            ld      (qr_x),a
 
             dec     hl
             jr      _next
@@ -626,11 +660,10 @@ _down:      ld      a,(qr_y)
 
             ld      (qr_y),a
             ld      a,(qr_x)
-            dec     a
-            ld      (qr_x),a
+            inc     a
 
-            ld      de,QR_DIM-1     ; move x one right at the same time
-            add     hl,bc
+            ld      de,QR_DIM+2     ; move x one right at the same time
+            add     hl,de
             jr      _next
 
 _change_dir:
@@ -641,11 +674,16 @@ _change_dir:
             ; move left as at the same time
             ld      a,(qr_x)
             dec     a
-            ld      (qr_x),a
-
             dec     hl
 
-_next:      ;
+_next:      ; A = qr_x
+            cp      6
+            jr nz,  _done
+            dec     a
+            dec     hl
+
+            ;
+_done:      ld      (qr_x),a
             pop     de
             pop     af
 
@@ -770,21 +808,10 @@ qr_template:
             db      $c2,$82,$c4,$4c,$85,$45
             db      $c2,$82,$c4,$56
             db      $c2,$82,$c4,$56
-            db      $81,$05,$81,$56
-            db      $87,$01,$56
+            db      $81,$05,$c3,$55
+            db      $87,$02,$56
 
             db      $00     ; end mark
-
-qr_mov_tab:
-
-
-
-
-
-            db      0       ; end mark
-
-
-
 qr_end:
 
 

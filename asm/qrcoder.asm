@@ -13,6 +13,8 @@ QR_DST_ADDR equ $c000
 
 QR_WHITE        equ     00000000b
 QR_BLACK        equ     10000000b
+QR_WHITE_T      equ     00000001b
+QR_BLACK_T      equ     10000001b
 QR_EMPTY        equ     01000000b
 QR_DIR_UP       equ     0
 QR_DIR_DOWN     equ     1
@@ -26,7 +28,9 @@ QR_CWDS         equ     55
             org $8000
 
 
-main:       exx
+main:
+
+            exx
             push    hl
             push    de
             push    bc
@@ -51,7 +55,8 @@ _mask_loop:
             ld      de,1111111111111111b
             call    insert_mask
             call    encode_layout
-            ;call    encode_mask
+            ld      ix,mask0_kernel
+            call    apply_mask
             ;call    calc_penalties
 
             pop     bc
@@ -195,7 +200,7 @@ _main:
 _loop:      ld      a,(de)
             inc     de
 
-            and     a
+            and     11111110b
             jr z,   _white
 
             xor     10000000b
@@ -328,7 +333,6 @@ _div_loop:  ;
 ; - alignment to octet boundary
 ; - padding (if needed)
 ; - generating ECC code words
-; - adding extra 7 alignment bits
 ;
 ; Inputs:
 ;  IX = prt to string phrase
@@ -515,6 +519,9 @@ mul45:      push    hl
             ret
 
 ;
+; Encode the QR-Code layout into the templete.
+; The function also add the remaining 7 padding bits.
+;
 ; Inputs:
 ;  HL = ptr to (interleaved) code words and ecc words
 ;  DE = ptr to temporary QR-Code last byte
@@ -545,9 +552,9 @@ _loop:      add     a,a
 _skip1:     ; if C_flag = 0 then a white pixel, if 1 then a black pixel
             push    bc
             jr c,   _black
-            ld      c,QR_WHITE
+            ld      c,QR_WHITE_T
             jr      _skip2
-_black:     ld      c,QR_BLACK
+_black:     ld      c,QR_BLACK_T
 _skip2:     ;
             ; Check if need to skip this module/pixel..
             push    af
@@ -570,7 +577,7 @@ _while:     ;
 
             ; add 7 pixels/modules of padding..
             ld      b,7
-_pad:       ld      (hl),QR_WHITE
+_pad:       ld      (hl),QR_WHITE_T
             call    pos_next
             djnz    _pad
 
@@ -747,6 +754,270 @@ _sta:       ld      (hl),a
             jr      _loop
 
 
+;
+;
+;
+;
+;
+;
+;
+;
+; Inputs:
+;  HL = ptr to qr-code template
+;  IX = ptr to mask kernel function
+; 
+; Returns:
+;  None.
+;
+; Trashes:
+;  A,BC,HL
+;
+apply_mask:
+            ld      hl,QR_TMP_PTR
+            ld      c,QR_DIM-1
+_main:
+
+            ld      b,QR_DIM-1
+_loop:      
+            ld      de,_ret
+            push    de
+            jp      (ix)
+
+_ret:       jr z,   _do_not_flip 
+            ld      a,(hl)
+            bit     0,a
+            jr z,   _permanent_module
+
+            xor     10000000b
+            ld      (hl),a
+_do_not_flip:
+_permanent_module:
+            inc     hl
+            dec     b
+            jp p,   _loop
+            inc     hl
+
+            dec     c
+            jp p,   _main
+
+            ret
+
+
+;
+; Mask #0
+; (row + column) mod 2 == 0
+;
+; Inputs:
+;  B = col
+;  C = row
+; 
+; Returns:
+;  Z_flag = 0 if kernel applies
+;
+; Trashes:
+;  A
+;
+mask0_kernel:
+            ld      a,b
+            add     a,c
+            and     00000001b
+            ret
+
+;
+; Mask #1
+; (row) mod 2 == 0
+;
+; Inputs:
+;  B = col
+;  C = row
+; 
+; Returns:
+;  Z_flag = 0 if kernel applies
+;
+; Trashes:
+;  A
+;
+mask1_kernel:
+            ld      a,c
+            and     00000001b
+            ret
+
+;
+; Mask #2
+; (column) mod 3 == 0
+;
+; Inputs:
+;  B = col
+;  C = row
+; 
+; Returns:
+;  Z_flag = 0 if kernel applies
+;
+; Trashes:
+;  A
+;
+mask2_kernel:
+            ld      a,b
+            call    divmod3_A
+            and     a
+            ret
+
+
+;
+; Mask #3
+; (row + column) mod 3 == 0
+;
+; Inputs:
+;  B = col
+;  C = row
+; 
+; Returns:
+;  Z_flag = 0 if kernel applies
+;
+; Trashes:
+;  A
+;
+mask3_kernel:
+            ld      a,b
+            add     a,c
+            call    divmod3_A
+            and     a
+            ret
+
+
+;
+; Mask #4
+; ( floor(row / 2) + floor(column / 3) ) mod 2 == 0
+;
+; Inputs:
+;  B = col
+;  C = row
+; 
+; Returns:
+;  Z_flag = 0 if kernel applies
+;
+; Trashes:
+;  A,A'
+;
+mask4_kernel:
+            ld      a,b
+            add     a,a
+            call    divmod3_A       ; quitient in A'
+            ex      af,af'
+            add     a,c
+            srl     a
+            and     00000001b
+            ret
+
+;
+; Mask #5
+; ((row * column) mod 2) + ((row * column) mod 3) == 0
+;
+; Inputs:
+;  B = col
+;  C = row
+; 
+; Returns:
+;  Z_flag = 0 if kernel applies
+;
+; Trashes:
+;  A,A'
+;
+mask5_kernel:
+            call    mul8_B_C
+            cp      192
+            jr c,   _ok_mod3
+            ; scale down
+            sra     a
+            sra     a
+_ok_mod3:   call    divmod3_A
+
+
+
+            and     00000001b
+            push    af
+
+
+
+
+            ld      a,b
+            add     a,a
+            call    divmod3_A       ; quitient in A'
+            ex      af,af'
+            add     a,c
+            srl     a
+            and     00000001b
+            ret
+
+;
+; Calculate quotient and modulo 3 of A. The maximum value of A can be 192.
+;
+;
+; Inputs:
+;  A = value to take module 3 and divide by 3. 
+;
+; Returns:
+;  A  = reminder (modulo)
+;  A' = quotient
+;
+; Trashes:
+;  None
+;
+divmod3_A:
+            push    bc
+            ld      bc,$40c0     ; A cannot be larger than 192 i.e. 3<<6
+            ex      af,af'
+            xor     a
+            ex      af,af'
+
+            ;
+_div_main:  cp      c
+            jr c,   _too_big
+            sub     c
+            ex      af,af'
+            add     a,b
+            ex      af,af'
+_too_big:   srl     c
+            srl     b
+            jr nz,  _div_main
+_done:      ;
+            pop     bc
+            ret
+
+
+;
+; Multiply two 8 bit values mod 256.
+;
+; Inputs:
+;  B = value 1
+;  C = value 2
+;
+; Returns:
+;  A = result
+;
+; Trashes:
+;  None
+;
+; Note: if the result does not fit into 8 bits then the
+; the result is (B*C) mod 256.
+;
+;
+mul8_B_C: 
+            push    bc
+            xor     a
+_mul_main:  srl     b
+            jr c,   _do_add
+            jr z,   _done
+            db      $fe     ; Old 'CP n' trick..
+_do_add:    add     a,c
+            sla     c
+            jr nz,  _mul_main
+_done:      ;
+            pop     bc
+            ret
+
+
+
             org     ($+255) & 0xff00
 alnum_map:
 patterns:
@@ -837,17 +1108,6 @@ QR_TMP_PTR: ds      32*QR_DIM
 
 
 
-
-test_phrase:        ; 55
-            db      0x20,0xcb,0x1a,0xa6,0x54,0x63,0xdd,0x20,0x73,0xba
-            db      0x9c,0xd4,0x95,0xda,0x8a,0x9d,0xea,0x67,0xd6,0x00
-            db      0xec,0x11,0xec,0x11,0xec,0x11,0xec,0x11,0xec,0x11
-            db      0xec,0x11,0xec,0x11,0xec,0x11,0xec,0x11,0xec,0x11
-            db      0xec,0x11,0xec,0x11,0xec,0x11,0xec,0x11,0xec,0x11
-            db      0xec,0x11,0xec,0x11,0xec
-
-; should produce ECC
-; 0x22,0xa3,0x53,0x01,0xa3,0x34,0xfc,0x98,0x55,0xf7,0x9d,0x8c,0xa0,0xad,0x90
 
 
 test_string:        ; 33 chars

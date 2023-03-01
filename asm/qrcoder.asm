@@ -10,6 +10,7 @@
 
 
 QR_DST_ADDR equ $c000
+QR_TMP_END_PTR  equ     QR_TMP_PTR+QR_DIM*(QR_DIM+1)-2
 
 QR_WHITE        equ     00000000b
 QR_BLACK        equ     10000000b
@@ -24,6 +25,9 @@ QR_VER          equ     3
 QR_LEV          equ     'L'
 QR_CWDS_EWDS    equ     (55+15)*8
 QR_CWDS         equ     55            
+
+
+
 
             org $8000
 
@@ -54,7 +58,7 @@ _mask_loop:
             ;ld      de,0000000000000000b
             ld      de,1111111111111111b
             call    insert_mask
-            call    encode_layout
+            ;call    encode_layout
             ld      ix,mask7_kernel
             call    apply_mask
             ;call    calc_penalties
@@ -773,7 +777,7 @@ _sta:       ld      (hl),a
 ;  A,BC,HL
 ;
 apply_mask:
-            ld      hl,QR_TMP_PTR
+            ld      hl,QR_TMP_END_PTR
             ld      c,QR_DIM-1
 _main:
 
@@ -785,17 +789,23 @@ _loop:
 
 _ret:       jr nz,  _do_not_flip 
             ld      a,(hl)
+        IF 0
             bit     0,a
             jr z,   _permanent_module
-
             xor     10000000b
+        ELSE
+            cp      QR_EMPTY
+            jr nz,  _permanent_module
+            xor     11000000b
+        ENDIF
+
             ld      (hl),a
 _do_not_flip:
 _permanent_module:
-            inc     hl
+            dec     hl
             dec     b
             jp p,   _loop
-            inc     hl
+            dec     hl
 
             dec     c
             jp p,   _main
@@ -900,14 +910,24 @@ mask3_kernel:
 ;  A,A'
 ;
 mask4_kernel:
-            ; Formula ((row + (2*col)//3) // 2) mod 2 to avoid push/pop ;)
-            ;
+            push    bc
+
+            ; floor(row/2)
+            ld      a,c
+            rrca
+            push    af
+
+            ; floor(col/3)
             ld      a,b
-            add     a,a
-            call    divmod3_A       ; quitient in A'
+            call    divmod3_A
             ex      af,af'
-            add     a,c
-            srl     a
+            pop     bc
+            
+            ; floor(row/2) + floor(col/3)
+            add     a,b
+            pop     bc
+            
+            ; (floor(row/2) + floor(col/3)) mod 2
             and     00000001b
             ret
 
@@ -927,16 +947,24 @@ mask4_kernel:
 ;
 mask5_kernel:
             push    bc
+            
+            ; (row * column) mod 2
             call    mul8_B_C
+            and     00000001b
+            push    af
+
+            ; (row * column) mod 3 -> (row * (col mod 3)) mod 3 
+            ld      a,b
+            call    divmod3_A
             ld      b,a
-            cp      192
-            jr c,   _ok_mod3
-            ; scale down
-            sra     a
-            sra     a
-_ok_mod3:   call    divmod3_A   ; (row * column) mod 3
-            srl     b           ;
-            adc     a,0         ; + (row * column) mod 2
+            call    mul8_B_C
+            call    divmod3_A
+            
+            ; ((row * column) mod 2) + ((row * column) mod 3) == 0
+            pop     bc
+            add     a,b
+            
+            ; 
             pop     bc
             ret
 
@@ -975,11 +1003,28 @@ mask6_kernel:
 ;  A,A'
 ;
 mask7_kernel:
-            call    mul8_B_C
-            call    divmod3_A
-            add     a,b
+            push    bc
+
+            ; (row + column) mod 2
+            ld      a,b
             add     a,c
             and     00000001b
+            push    af
+
+            ; (row * column) mod 3 -> (row * (col mod 3)) mod 3 
+            ld      a,b
+            call    divmod3_A
+            ld      b,a
+            call    mul8_B_C
+            call    divmod3_A
+
+            ; ((row + column) mod 2) + ((row * column) mod 3) ) mod 2 == 0
+            pop     bc
+            add     a,b
+            and     00000001b
+
+            ; 
+            pop     bc
             ret
 
 

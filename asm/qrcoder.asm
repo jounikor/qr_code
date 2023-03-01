@@ -55,7 +55,7 @@ _mask_loop:
             ld      de,1111111111111111b
             call    insert_mask
             call    encode_layout
-            ld      ix,mask0_kernel
+            ld      ix,mask7_kernel
             call    apply_mask
             ;call    calc_penalties
 
@@ -783,7 +783,7 @@ _loop:
             push    de
             jp      (ix)
 
-_ret:       jr z,   _do_not_flip 
+_ret:       jr nz,  _do_not_flip 
             ld      a,(hl)
             bit     0,a
             jr z,   _permanent_module
@@ -894,12 +894,14 @@ mask3_kernel:
 ;  C = row
 ; 
 ; Returns:
-;  Z_flag = 0 if kernel applies
+;  Z_flag = 1 if kernel applies
 ;
 ; Trashes:
 ;  A,A'
 ;
 mask4_kernel:
+            ; Formula ((row + (2*col)//3) // 2) mod 2 to avoid push/pop ;)
+            ;
             ld      a,b
             add     a,a
             call    divmod3_A       ; quitient in A'
@@ -924,30 +926,106 @@ mask4_kernel:
 ;  A,A'
 ;
 mask5_kernel:
+            push    bc
             call    mul8_B_C
+            ld      b,a
             cp      192
             jr c,   _ok_mod3
             ; scale down
             sra     a
             sra     a
-_ok_mod3:   call    divmod3_A
+_ok_mod3:   call    divmod3_A   ; (row * column) mod 3
+            srl     b           ;
+            adc     a,0         ; + (row * column) mod 2
+            pop     bc
+            ret
 
-
-
-            and     00000001b
-            push    af
-
-
-
-
-            ld      a,b
-            add     a,a
-            call    divmod3_A       ; quitient in A'
-            ex      af,af'
-            add     a,c
-            srl     a
+;
+; Mask #6
+; ( ((row * column) mod 2) + ((row * column) mod 3) ) mod 2 == 0
+;
+; Inputs:
+;  B = col
+;  C = row
+; 
+; Returns:
+;  Z_flag = 0 if kernel applies
+;
+; Trashes:
+;  A,A'
+;
+mask6_kernel:
+            call    mask5_kernel
             and     00000001b
             ret
+
+
+;
+; Mask #7
+; ( ((row + column) mod 2) + ((row * column) mod 3) ) mod 2 == 0
+;
+; Inputs:
+;  B = col
+;  C = row
+; 
+; Returns:
+;  Z_flag = 0 if kernel applies
+;
+; Trashes:
+;  A,A'
+;
+mask7_kernel:
+            call    mul8_B_C
+            call    divmod3_A
+            add     a,b
+            add     a,c
+            and     00000001b
+            ret
+
+
+;
+; Calculate penalty score 1
+;
+; 5 consequtive pixels of the same color = 3 penalty point.
+; After 5 each additional pixel of the same color add 1 penalty point.
+; Do check for each row and column.
+;
+; Inputs:
+;  HL = ptr to qr template
+;
+; Returns:
+;  DE = penalty score
+;
+calc_penalty1:
+        ; Horizontal
+        ld      c,QR_DIM        ; rows
+        ld      de,0
+
+
+_h_main:
+        ld      b,QR_DIM        ; cols
+        xor     a
+_h_loop:
+
+
+
+
+
+        djnz    _h_loop
+
+        dec     c
+        jr nz,  _h_main
+
+
+        ; Vertical
+
+
+
+
+        ret
+
+
+
 
 ;
 ; Calculate quotient and modulo 3 of A. The maximum value of A can be 192.

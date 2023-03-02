@@ -12,20 +12,18 @@
 QR_DST_ADDR equ $c000
 QR_TMP_END_PTR  equ     QR_TMP_PTR+QR_DIM*(QR_DIM+1)-2
 
-QR_WHITE        equ     00000000b
+QR_WHITE        equ     00000000b   ; bit 0 == 0 -> permanent pixel/module
 QR_BLACK        equ     10000000b
-QR_WHITE_T      equ     00000001b
+QR_WHITE_T      equ     00000001b   ; bit 0 == 1 -> can be overwritten
 QR_BLACK_T      equ     10000001b
-QR_EMPTY        equ     01000000b
-QR_DIR_UP       equ     0
-QR_DIR_DOWN     equ     1
+QR_EMPTY        equ     01000001b
 
 QR_DIM          equ     29
 QR_VER          equ     3
 QR_LEV          equ     'L'
 QR_CWDS_EWDS    equ     (55+15)*8
 QR_CWDS         equ     55            
-
+QR_MAX_PHRASE   equ     76
 
 
 
@@ -33,35 +31,74 @@ QR_CWDS         equ     55
 
 
 main:
-
+            ;call    decode_qr_template
+            ;call    print_2
+            ;ret
+            di
             exx
             push    hl
             push    de
             push    bc
             exx
 
+            ; gf_init and decode_qr_layout need to be called only
+            ; once for any number of calculated QR-Codes.
             call    gf_init
+            call    decode_qr_template
 
+            ;
+            ; Make sure text phrase is not longer than 76 characters.
             ld      ix,test_string
             ld      a,33
             call    encode_phrase
             call    polydiv
+            
             ; There is no need to intealeave 3-L QR-Code
             ;call    interleave
 
             ; here be the masking 8x and encoding layout..
             ld      b,8         ;
-            ;ld     ix,qr_penalties
+            ld      ix,mask0_kernel
+            ld      hl,0
+            push    hl
+
 _mask_loop:
             push    bc
-            call    decode_qr_template
-            ;ld      de,0000000000000000b
-            ld      de,1111111111111111b
-            call    insert_mask
-            ;call    encode_layout
-            ld      ix,mask7_kernel
+            
+            ; Encode codewords, ecc words and padding to qr-code bits layout
+            call    encode_layout
+            ; Apply mask pattern (0 to 7)
             call    apply_mask
-            ;call    calc_penalties
+            ; And insert the mask information with ecc into the qr-code
+            ld      d,(ix-1)
+            ld      e,(ix-2)
+            call    insert_mask
+
+            ; Advance to the next mask pattern
+            ld      d,(ix-3)
+            ld      e,(ix-4)
+            ld      ixh,d
+            ld      ixl,e
+
+            ; Calculate total sum of all 4 penalties into HL
+            ; All penalty functions could be combined but..
+            call    calc_penalty1
+            pop     hl
+            add     hl,de
+            push    hl
+            call    calc_penalty2
+            pop     hl
+            add     hl,de
+            push    hl
+            call    calc_penalty3
+            pop     hl
+            add     hl,de
+            push    hl
+            call    calc_penalty4
+            pop     hl
+            add     hl,de
+
+
 
             pop     bc
             ;djnz    _mask_loop
@@ -76,6 +113,7 @@ _mask_loop:
             pop     de
             pop     hl
             exx
+            ei
 ll
             halt
     jr ll
@@ -128,9 +166,10 @@ _copy:      ;
 ;  None
 ;
 ; Trashes:
-;  HL,DE,BC,A,HL',BC',IX
+;  HL,DE,BC,A,HL',BC'
 ;
 insert_mask:
+            push    ix
             ld      ix,mask_v_delta
             ld      hl,QR_TMP_PTR+(8*30)
             exx
@@ -180,6 +219,7 @@ _done:      exx
             ; last bit in D has become either 0000000b or 10000000b
             ld      (hl),d
             ;
+            pop     ix
             ret
 
             ; Tables for advancing in the QR-Code for placing mask bits
@@ -373,7 +413,7 @@ encode_phrase:
             ld      (de),a
             inc     de
             ld      a,b
-            and     00011111b   ; remainin 5 bits of length
+            and     00011111b   ; remaining 5 bits of length
             or      00100000b   ; stop bit
 
             ld      c,b
@@ -442,6 +482,8 @@ _add_odd_char:
             inc     ix
 
             ; 6 bits of the encoded chars + terminating 0000b
+            ; Since we support only 3-L we know that terminating 0s
+            ; are always total 4 not less.
             ld      b,6+4
             sla     h
             sla     h
@@ -454,7 +496,7 @@ _bits3      sla     h
             ld      a,1
 _no_ovl3:   djnz    _bits3
 
-            ; Align to byte
+            ; Align to full byte
             jr c,   _aligned
 _align8:    add     a,a
             jr nc,  _align8
@@ -496,8 +538,6 @@ _no_alignment:
 ; Trashes:
 ;  DE
 ;
-;
-
 mul45:      push    hl
             ld      h,0
             ld      l,e
@@ -541,8 +581,9 @@ encode_layout:
             ; init position statemachine
             call    init_next
 
+            ; HL = ptr to the last pixel/module in the QR-Code template
+            ; DE = ptr to code + ecc words
             ld      de,ENC_BUF_PTR
-            ; Last pixel/module in the QR-Code template
             ld      c,7
 
             ld      a,10000000b
@@ -561,20 +602,14 @@ _skip1:     ; if C_flag = 0 then a white pixel, if 1 then a black pixel
 _black:     ld      c,QR_BLACK_T
 _skip2:     ;
             ; Check if need to skip this module/pixel..
-            push    af
-            ld      a,QR_EMPTY
-
-_while:     ;
-            cp      (hl)
-            ;ld      (hl),00101000b
-            call nz,    pos_next
-            jr nz,  _while
+_while:     ; If bit 0 is set this is a non-permanent pixel/module -> skip
+            bit     0,(hl)
+            call z,   pos_next
+            jr z,   _while
             ld      (hl),c
-            call z, pos_next
+            call nz, pos_next
             
-            pop     af
             pop     bc
-
             djnz    _loop
             dec     c
             jr nz,  _main
@@ -588,6 +623,8 @@ _pad:       ld      (hl),QR_WHITE_T
             ret
 
 ;
+; Initialize QR-Code matrix zig-zag traveling state machine.
+;
 ; Inputs:
 ;  None
 ;
@@ -597,7 +634,6 @@ _pad:       ld      (hl),QR_WHITE_T
 ; Trashes:
 ;  A
 ;
-
 init_next:
             xor     a
             ld      (qr_stm),a
@@ -609,6 +645,10 @@ init_next:
             ret
 
 ;
+; Return the next candidate position in the QR-Code matrix.
+; The function takes care of the vertical sync line and can
+; skip it.
+;
 ; Inputs:
 ;  HL = ptr to temporary (octet aligned) qr buffer
 ;
@@ -616,7 +656,7 @@ init_next:
 ;  HL = ptr to new position in temporary qr buffer
 ;
 ; Trashes:
-;  None, keeps flags as when called.
+;  None, also keeps flags as when called.
 ;
 pos_next:
             push    af
@@ -688,6 +728,7 @@ _change_dir:
             dec     hl
 
 _next:      ; A = qr_x
+            ; This check is for skipping the vertical sync line.
             cp      6
             jr nz,  _done
             dec     a
@@ -721,7 +762,7 @@ _done:      ld      (qr_x),a
 ; Encoding on each octet within the template:
 ;  00000000b = white pixel/module
 ;  10000000b = black pixel/module
-;  01000000b = empty pixel/module available for encoded pixels
+;  01000001b = empty pixel/module available for encoded pixels
 ;
 decode_qr_template:
             ld      de,qr_template
@@ -748,9 +789,13 @@ _loop:      ld      a,(de)
             ; black-white alternate
             add     a,a
             ld      c,a
-_white:
+
+            ; White, black and black & white alternate 
+_white:     ; all pass through here i.e. they see CP n here..
 _black:
-_empty:
+            db      $fe         ; Old 'CP n' trich
+            ; Empty pixels/modules will have bit 0 set
+_empty:     inc     a
 _sta:       ld      (hl),a
             inc     hl
             xor     c
@@ -759,12 +804,12 @@ _sta:       ld      (hl),a
 
 
 ;
-;
-;
-;
-;
-;
-;
+; Generic mask applying function. This routine calls
+; mask kernels pointed by IX.
+; 
+; Note: The kernel pointed by IX must have the 4 octets preamble
+; for next kernel and the 15 bit mask+ecc to be inserted into the
+; QR-Code.
 ;
 ; Inputs:
 ;  HL = ptr to qr-code template
@@ -789,7 +834,7 @@ _loop:
 
 _ret:       jr nz,  _do_not_flip 
             ld      a,(hl)
-        IF 0
+        IF 1
             bit     0,a
             jr z,   _permanent_module
             xor     10000000b
@@ -827,6 +872,9 @@ _permanent_module:
 ; Trashes:
 ;  A
 ;
+            dw      0                       ; penalty
+            dw      mask1_kernel            ; next kernel
+            db      11101111b,10001001b     ; L = 3, mask 0
 mask0_kernel:
             ld      a,b
             add     a,c
@@ -847,6 +895,9 @@ mask0_kernel:
 ; Trashes:
 ;  A
 ;
+            dw      0                       ; penalty
+            dw      mask2_kernel
+            db      11100101b,11100111b
 mask1_kernel:
             ld      a,c
             and     00000001b
@@ -866,6 +917,9 @@ mask1_kernel:
 ; Trashes:
 ;  A
 ;
+            dw      0                       ; penalty
+            dw      mask3_kernel
+            db      11111011b,01010101b
 mask2_kernel:
             ld      a,b
             call    divmod3_A
@@ -887,6 +941,9 @@ mask2_kernel:
 ; Trashes:
 ;  A
 ;
+            dw      0                       ; penalty
+            dw      mask4_kernel
+            db      11110001b,00111011b
 mask3_kernel:
             ld      a,b
             add     a,c
@@ -909,6 +966,9 @@ mask3_kernel:
 ; Trashes:
 ;  A,A'
 ;
+            dw      0                       ; penalty
+            dw      mask5_kernel
+            db      11001100b,01011110b
 mask4_kernel:
             push    bc
 
@@ -945,6 +1005,9 @@ mask4_kernel:
 ; Trashes:
 ;  A,A'
 ;
+            dw      0                       ; penalty
+            dw      mask6_kernel
+            db      11000110b,00110000b
 mask5_kernel:
             push    bc
             
@@ -982,6 +1045,9 @@ mask5_kernel:
 ; Trashes:
 ;  A,A'
 ;
+            dw      0                       ; penalty
+            dw      mask7_kernel
+            db      11011000b,10000010b
 mask6_kernel:
             call    mask5_kernel
             and     00000001b
@@ -1002,6 +1068,8 @@ mask6_kernel:
 ; Trashes:
 ;  A,A'
 ;
+            dw      mask0_kernel
+            db      11010010b,11101100b
 mask7_kernel:
             push    bc
 
@@ -1041,35 +1109,289 @@ mask7_kernel:
 ; Returns:
 ;  DE = penalty score
 ;
+; Trashes:
+;  A,BC,HL
+;
 calc_penalty1:
-        ; Horizontal
-        ld      c,QR_DIM        ; rows
-        ld      de,0
+            ld      hl,QR_TMP_PTR
+            push    ix
+            ld      c,QR_DIM
+            push    hl
+            ld      ix,0
+
+_loop_horizontal:
+            ld      b,QR_DIM
+            call    penalty1_horizontal
+            add     ix,de
+            dec     c
+            jr nz,  _loop_horizontal
+
+            pop     hl
+            ld      c,QR_DIM
+
+_loop_vertical:
+            ld      b,QR_DIM
+            call    penalty1_vertical
+            add     ix,de
+            dec     c
+            jr nz,  _loop_vertical
+
+            push    ix
+            pop     de
+            pop     ix
+
+            ret
+
+;
+; Inputs:
+;  HL = ptr to start to the line (assume size QR_DIM+1, where QR_DIM
+;       pixels are checked).
+;  B = length of the line to check for (i.e., QR_MIN)
+;
+; Returns;
+;  DE = penalty
+;  HL = ptr to next line
+;
+; Trashes:
+;  none
+;
+penalty1_horizontal:
+            push    bc
+            ld      e,0
+            ld      a,(hl)
+            inc     hl
+
+            ; C = length of consequtive pixels of the same color
+            ; B = length of the line and we need to test one less
+            ; E = line total penalty
+            ld      c,1
+            dec     b
+
+_line_loop: ;
+            ld      d,(hl)
+            inc     hl
+            ; compare to previous.. xor is 0 or 1 if pixels match
+            xor     d
+            ; Mask away the "modifable bit" of the pixel, since
+            ; we want to match only 7 upper bits.
+            and     11111110b
+            jr z,   _match
+            
+            ; Reset C to length of 1 consequtive pixels so far 
+            ld      c,0
+            ;jr      _cont
+
+_match:     inc     c
+            ld      a,c
+            cp      5
+            jr c,   _cont
+            jr nz,  _skip
+            
+            ; If 5 consequtive pixels are found add penalty by 3
+            inc     e
+            inc     e
+
+            ; If more than 5 consequtive pixels are found add 1
+            ; penalty for each additional pixel.
+_skip:      inc     e
+
+            ; Restore A for the latest pixel value
+_cont:      ld      a,d
+            djnz    _line_loop
+
+            ; Skip the 1 "hidden alignment" pixel.
+            inc     hl
+
+            ld      d,b
+            pop     bc
+            ret
 
 
-_h_main:
-        ld      b,QR_DIM        ; cols
-        xor     a
-_h_loop:
+;
+; Inputs:
+;  HL = ptr to start of the next column
+;  B = height of the column to check for (i.e., QR_MIN)
+;
+; Returns;
+;  DE = penalty
+;  HL = ptr to next column
+;
+; Trashes:
+;  none
+;
+penalty1_vertical:
+            push    hl
+            push    bc
+            
+            ld      de,QR_DIM+1
+            add     hl,de
+            ld      e,d
+            ld      a,(hl)
+
+            ; C = length of consequtive pixels of the same color
+            ; B = length of the line and we need to test one less
+            ; E = line total penalty
+            ld      c,1
+            dec     b
+
+_column_loop: ;
+            ld      d,(hl)
+            ; compare to previous.. xor is 0 or 1 if pixels match
+            xor     d
+            ; Mask away the "modifable bit" of the pixel, since
+            ; we want to match only 7 upper bits.
+            and     11111110b
+            jr z,   _match
+            
+            ; Reset C to length of 1 consequtive pixels so far 
+            ld      c,0
+
+_match:     inc     c
+            ld      a,c
+            cp      5
+            jr c,   _cont
+            jr nz,  _skip
+            
+            ; If 5 consequtive pixels are found add penalty by 3
+            inc     e
+            inc     e
+
+            ; If more than 5 consequtive pixels are found add 1
+            ; penalty for each additional pixel.
+_skip:      inc     e
+
+
+_cont:      ; Go to next row..
+            push    de
+            ld      de,QR_DIM+1
+            add     hl,de
+            pop     de
+
+_no_ovl:    ; Restore A for the latest pixel value
+            ld      a,d
+            djnz    _column_loop
+
+            ld      d,b
+            pop     bc
+            pop     hl
+            inc     hl
+
+            ret
+
+;
+; Calculate Penalty score 2
+;
+; 3x(m-1 x n-1) blocks.. over the entire qr-c0de
+; brute force search using 2x2 blocks
+;
+; Inputs:
+;  HL = ptr to qr template
+;
+; Returns:
+;  DE = penalty score
+;
+; Trashes:
+;  A,BC,HL
+;
+calc_penalty2:
+            push    ix
+            ld      ix,QR_TMP_PTR
+            ld      de,0
+            ; rows
+            ld      c,QR_DIM-1
+
+_row_loop:  ; columns
+            ld      b,QR_DIM-1
+_column_loop:
+            ld      a,(ix+0)
+            ; pixel/module next right
+            cp      (ix+1)
+            jr nz,  _fail
+            ; pixel/module below.. +1 due the invisible alignment column
+            cp      (ix+QR_DIM+1)       
+            jr nz,  _fail
+            ; pixel/module below right corner..
+            cp      (ix+QR_DIM+2)
+            jr nz,  _fail
+
+            inc     de
+            inc     de
+            inc     de
+
+_fail:      inc     ix
+            djnz    _column_loop
+
+            inc     ix      ; advance to the next row
+            dec     c
+            jr nz,  _row_loop
+
+            pop     ix
+            ret
+
+;
+; Calculate Penalty score 3
+;
+; look for 0X000X0XXXX or XXXX0X000X0 patterns, where X = white
+; slightly optimized search based on "next" table to advance to the
+; next possible seacrh position based on the search so far..
+;
+; Inputs:
+;  HL = ptr to qr template
+;
+; Returns:
+;  DE = penalty score
+;
+; Trashes:
+;  A,BC,HL
+;
+calc_penalty3:
+            ; Calculate amount of black modules/pixels
+            ld      c,QR_DIM
+            ld      de,0
+_row_loop:  ;
+            ld      b,QR_DIM
+_col_loop:  ;
+            bit     7,(hl)
+            jr z,   _not_black
+            inc     de
+_not_black:
+            djnz    _col_loop
+
+            inc     hl          ; Skip hidden alignment octet
+            dec     c
+            jr nz,  _row_loop
+
+            ; 
+            ld      hl,QR_DIM*QR_DIM
+            scf
+            sbc     hl,de
 
 
 
 
 
-        djnz    _h_loop
-
-        dec     c
-        jr nz,  _h_main
-
-
-        ; Vertical
+            ret
 
 
 
-
-        ret
-
-
+;
+; Calculate Penalty score 4
+;
+; look for 0X000X0XXXX or XXXX0X000X0 patterns, where X = white
+; slightly optimized search based on "next" table to advance to the
+; next possible seacrh position based on the search so far..
+;
+; Inputs:
+;  HL = ptr to qr template
+;
+; Returns:
+;  DE = penalty score
+;
+; Trashes:
+;  A,BC,HL
+;
+calc_penalty4:
+            ret
 
 
 ;
@@ -1148,15 +1470,6 @@ patterns:
 gen_15:     db      8,183,61,91,202,37,51,58,58,237,140,124,5,99,105
 qr_stm:     db      0                       ;
 mask_pattern:       ;
-            ;       01234567  89abcde7      ; Last bit 7 is for horiz cases 
-            db      11101111b,10001001b     ; L = 1, mask 0
-            db      11100101b,11100111b
-            db      11111011b,01010101b
-            db      11110001b,00111011b
-            db      11001100b,01011110b
-            db      11000110b,00110000b
-            db      11011000b,10000010b
-            db      11010010b,11101100b
             ds      32-15-1-16              ; space for ascii till space
             ;db      ' ',0,0,0,'$','%',0,0,0,0,'*','+',0,'-','.','/'
             db       36,0,0,0, 37, 38,0,0,0,0, 39, 40,0, 41, 42, 43
@@ -1174,6 +1487,7 @@ qr_dir:     db      0
             db       28, 29, 30, 31, 32, 33, 34, 35
             ; after this we have 256-90 left for this 256 bytes segment
 
+
 ; Format of the RLE:
 ;  00 nnnnnn -> white (00000000b), 1 < n < 63
 ;  01 nnnnnn -> empty (01000000b), 1 < n < 63
@@ -1182,28 +1496,32 @@ qr_dir:     db      0
 ;  00 000000 -> end mark
 ;
 qr_template:
-            db      $87,$01,$4d,$01,$86,$c4
-            db      $04,$c2,$4d,$01,$c2,$04,$c4
-            db      $82,$c4,$4d,$01,$c2,$82,$c6
-            db      $82,$c4,$4d,$01,$c2,$82,$c6
-            db      $82,$c4,$4d,$01,$c2,$82,$c6
-            db      $04,$c2,$4d,$01,$c2,$04,$c2
-            db      $86,$d0,$86,$c2,$08,$4d,$09,$46
-            
-            db      $81,$5d,$01,$5d,$81,$5d,$01,$5d
-            db      $81,$5d,$01,$5d,$81,$5d,$01,$5d
-            db      $81,$5d,$01,$5d,$81,$5d,$01,$5d
+            db      $86,$c3,$4c,$01,$86,$c4
+            db      $04,$c3,$4c,$01,$c2,$04,$c4
+            db      $82,$c5,$4c,$01,$c2,$82,$c6
+            db      $82,$c5,$4c,$01,$c2,$82,$c6
+            db      $82,$c5,$4c,$01,$c2,$82,$c6
+            db      $04,$c3,$4c,$01,$c2,$04,$c2
+            db      $86,$d0,$88,$09,$4c,$09
+            db      $89,$4c,$89
 
-            db      $81,$4d,$85,$45
+            db      $46,$01,$5d,$81
+            db      $5d,$01,$5d,$81
+            db      $5d,$01,$5d,$81
+            db      $5d,$01,$5d,$81
+            db      $5d,$01,$5d,$81
+            db      $5d,$01,$5d,$81
+
+            db      $4d,$85,$45
 
             db      $08,$81,$4b,$81,$03,$81,$45
-            db      $87,$01,$4c,$c4,$81,$45
-            db      $81,$05,$c2,$4c,$81,$03,$81,$45
-            db      $c2,$82,$c4,$4c,$85,$45
-            db      $c2,$82,$c4,$56
-            db      $c2,$82,$c4,$56
+            db      $86,$c3,$4b,$c4,$81,$45
+            db      $81,$05,$c3,$4b,$81,$03,$81,$45
+            db      $c2,$82,$c5,$4b,$85,$45
+            db      $c2,$82,$c5,$55
+            db      $c2,$82,$c5,$55
             db      $81,$05,$c3,$55
-            db      $87,$02,$56
+            db      $86,$c3,$55
 
             db      $00     ; end mark
 qr_end:
@@ -1223,9 +1541,11 @@ ENC_BUF_PTR:
 GF_E2G_PTR: ds  256
 GF_G2E_PTR: ds  256
 
-
+            ; 256 bytes aligned
+QR_PEN_PTR:
 QR_DST_PTR: ds      QR_DIM*4
 
+            ; 256 bytes aligned
             org ($+255) & 0xff00
 QR_TMP_PTR: ds      32*QR_DIM
 

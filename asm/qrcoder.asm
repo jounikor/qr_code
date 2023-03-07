@@ -1345,6 +1345,23 @@ _fail:      inc     ix
 ;  A,BC,HL
 ;
 calc_penalty3:
+            ret
+
+
+;
+; Calculate Penalty score 4
+;
+;
+; Inputs:
+;  HL = ptr to qr template
+;
+; Returns:
+;  DE = penalty score
+;
+; Trashes:
+;  A,BC,HL
+;
+calc_penalty4:
             ; Calculate amount of black modules/pixels
             ld      c,QR_DIM
             ld      de,0
@@ -1361,39 +1378,65 @@ _not_black:
             dec     c
             jr nz,  _row_loop
 
-            ; 
-            ld      hl,QR_DIM*QR_DIM
-            scf
-            sbc     hl,de
+            ; Find percentage of all modules/pixes and round down to
+            ; neares 5%. This percentage determination is an approximation
+            ; and has some % of error due scaling down the full amount of
+            ; modules/pixels to fit in 8 bits. The error is ~0.6% but at
+            ; maximum has a peak of ~4%..
+            
+            ; Make total to fit into E and 8 bits; D becomes 0
+            srl     d
+            rr      e
+            srl     d
+            rr      e
 
+            ld      hl,pen4_precent_tab
+            db      $fe         ; skip first INC D..
+_find_loop:
+            inc     d
+            ld      a,(hl)
+            inc     hl
+            cp      e
+            jr c,   _find_loop
 
+            ; D = index to found 5% percentage bucket. Multiply by 5.. 
+            ld      a,d
+            add     a,a
+            add     a,a
+            add     a,d
 
+            ; A = lower bound of percentage in 5% steps..
+            ld      d,a
+            sub     50
+            jr nc,  _not_negative1
+            neg
+_not_negative1:
+            ld      e,a
 
+            ld      a,d
+            sub     45      ; abs((percent+5%) - 50%)
+            jr nc,  _not_negative2
+            neg
+_not_negative2:
+            ; min()
+            cp      e
+            jr c,   _A_smaller
+            ld      a,e
+_A_smaller: 
+            ; multiply lower value by 10 but since it was already in steps of 5 
+            ; we just multiply by 2
+            add     a,a
 
+            ld      e,a
+            ld      d,0
             ret
 
-
-
-;
-; Calculate Penalty score 4
-;
-; look for 0X000X0XXXX or XXXX0X000X0 patterns, where X = white
-; slightly optimized search based on "next" table to advance to the
-; next possible seacrh position based on the search so far..
-;
-; Inputs:
-;  HL = ptr to qr template
-;
-; Returns:
-;  DE = penalty score
-;
-; Trashes:
-;  A,BC,HL
-;
-calc_penalty4:
-            ret
-
-
+pen4_precent_tab:
+            ;       0      5      10      15      20      25      30    
+            db      42>>2, 84>>2, 126>>2, 168>>2, 210>>2, 252>>2, 294>>2
+            db      336>>2, 378>>2, 420>>2, 462>>2, 504>>2, 546>>2, 588>>2
+            db      630>>2, 672>>2, 714>>2, 756>>2, 798>>2, 841>>2
+            db      255 ; end mark
 ;
 ; Calculate quotient and modulo 3 of A. The maximum value of A can be 192.
 ;

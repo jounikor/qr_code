@@ -74,12 +74,6 @@ _mask_loop:
             ld      e,(ix-2)
             call    insert_mask
 
-            ; Advance to the next mask pattern
-            ld      d,(ix-3)
-            ld      e,(ix-4)
-            ld      ixh,d
-            ld      ixl,e
-
             ; Calculate total sum of all 4 penalties into HL
             ; All penalty functions could be combined but..
             call    calc_penalty1
@@ -98,14 +92,50 @@ _mask_loop:
             pop     hl
             add     hl,de
 
+            ; Store penalty for this mask..
+            ld      (ix-5),h
+            ld      (ix-6),l
 
+            ; Advance to the next mask pattern
+            ld      d,(ix-3)
+            ld      e,(ix-4)
+            ld      ixh,d
+            ld      ixl,e
 
             pop     bc
             ;djnz    _mask_loop
 
-            ;call   encode_final
-            ;ld     de,(qr_mask)
-            ;call   insert_mask
+            ; Find the mask with the lowest penalty.
+            
+            ld      de,32767
+            ld      b,8         ;
+            ld      ix,mask0_kernel
+            xor     a               ; Clears C_flag
+            ld      c,a
+_find_smallest:
+            ld      h,(ix-5)
+            ld      l,(ix-6)
+            sbc     hl,de
+            jr nc,  _not_bigger     ; 
+            add     hl,de           ; Clears C_flag
+            ex      de,hl
+            ld      (qr_final_mask),ix
+_not_bigger:
+            ld      h,(ix-3)
+            ld      l,(ix-4)
+            ld      ixh,h
+            ld      ixl,l
+            djnz    _find_smallest
+
+            call    encode_layout
+            
+            ld      ix,(qr_final_mask)
+            call    apply_mask
+
+            ld      d,(ix-3)
+            ld      e,(ix-4)
+            call   insert_mask
+            
             call    print_2
 
             exx
@@ -1068,6 +1098,7 @@ mask6_kernel:
 ; Trashes:
 ;  A,A'
 ;
+            dw      0
             dw      mask0_kernel
             db      11010010b,11101100b
 mask7_kernel:
@@ -1331,8 +1362,8 @@ _fail:      inc     ix
 ;
 ; Calculate Penalty score 3
 ;
-; look for 0X000X0XXXX or XXXX0X000X0 patterns, where X = white
-; slightly optimized search based on "next" table to advance to the
+; look for 10111010000 or 00001011101 patterns, where 0 = white
+; slightly optimized search based on "next" jump to advance to the
 ; next possible seacrh position based on the search so far..
 ;
 ; Inputs:
@@ -1345,8 +1376,220 @@ _fail:      inc     ix
 ;  A,BC,HL
 ;
 calc_penalty3:
+            push    ix
+            ld      c,QR_DIM
+            ld      hl,0
+            ld      ix,QR_TMP_PTR
+            push    ix
+
+            ; Horizantal searchs..
+_row_loop:  ;
+            ld      de,40
+            ld      b,QR_DIM-11
+_col_loop:  ; Brute force.. no skipping of impossible next searches..
+            call    penalty3_horizontal1
+            call    penalty3_horizontal2
+            inc     ix
+            djnz    _col_loop
+
+            ; advance to the next row
+            ld      de,11+1
+            add     ix,de
+            dec     c
+            jr nz,  _row_loop
+
+            ; Vertical search            
+            pop     ix
+            ld      c,QR_DIM-11
+_col_loop2:  ;
+            ld      b,QR_DIM
+            push    ix
+_row_loop2: ; Brute force.. no skipping of impossible next searches..
+            ld      e,40
+            call    penalty3_vertical1
+            call    penalty3_vertical2
+            ld      e,QR_DIM+1
+            add     ix,de
+            djnz    _row_loop2
+
+            ; advance to the next row
+            pop     ix
+            inc     ix
+            dec     c
+            jr nz,  _col_loop2
+            
+            pop     ix
+
+            ; Return total penalty in DE
+            ex      de,hl
             ret
 
+
+;
+; Inputs:
+;  IX = ptr to current position in a row
+;  HL = current penalty
+;  DE = penalty add
+;
+; Returns:
+;  HL = running penalty
+;
+; Trashes:
+;  None. 
+
+penalty3_horizontal1:
+            ; index    0123456789a
+            ; pattern  10111010000 
+            ; next tab 11321214321
+_col_loop:
+            bit     7,(ix+0)    ; 1
+            ret z
+            bit     7,(ix+1)    ; 0
+            ret nz
+            bit     7,(ix+2)    ; 1
+            ret z
+            bit     7,(ix+3)    ; 1
+            ret z
+            bit     7,(ix+4)    ; 1
+            ret z
+            bit     7,(ix+5)    ; 0
+            ret nz
+            bit     7,(ix+6)    ; 1
+            ret z
+            bit     7,(ix+7)    ; 0
+            ret nz
+            bit     7,(ix+8)    ; 0
+            ret nz
+            bit     7,(ix+9)    ; 0
+            ret nz
+            bit     7,(ix+10)   ; 0
+            ret nz
+
+            ; pattern found.. add penalty by 40
+            add     hl,de
+            ret
+
+penalty3_horizontal2:
+            ; index    a9876543210
+            ; pattern  10111010000 
+            ; next tab 11321214321
+_col_loop:
+            bit     7,(ix+10)    ; 1
+            ret z
+            bit     7,(ix+9)    ; 0
+            ret nz
+            bit     7,(ix+8)    ; 1
+            ret z
+            bit     7,(ix+7)    ; 1
+            ret z
+            bit     7,(ix+6)    ; 1
+            ret z
+            bit     7,(ix+5)    ; 0
+            ret nz
+            bit     7,(ix+4)    ; 1
+            ret z
+            bit     7,(ix+3)    ; 0
+            ret nz
+            bit     7,(ix+2)    ; 0
+            ret nz
+            bit     7,(ix+1)    ; 0
+            ret nz
+            bit     7,(ix+0)   ; 0
+            ret nz
+
+            ; pattern found.. add penalty by 40
+            add     hl,de
+            ret
+
+;
+; Returns:
+;  IX = ptr to current position in a column
+;  HL = current running penalty
+;  DE = penalty add
+;
+
+penalty3_vertical1:
+            push    ix
+            push    bc
+            ld      bc,4*(QR_DIM+1)
+
+            ; index    0123456789a
+            ; pattern  10111010000 
+            ; next tab 11321214321
+_col_loop:
+            bit     7,(ix+0)                ; 1
+            jr z,   _failed
+            bit     7,(ix+1*(QR_DIM+1))     ; 0
+            jr nz,  _failed
+            bit     7,(ix+2*(QR_DIM+1))     ; 1
+            jr z,   _failed
+            bit     7,(ix+3*(QR_DIM+1))      ; 1
+            jr z,   _failed
+            bit     7,(ix+4*(QR_DIM+1))     ; 1
+            jr z,   _failed
+            add     ix,bc
+            bit     7,(ix+0)                ; 0
+            jr nz,  _failed
+            bit     7,(ix+1*(QR_DIM+1))     ; 1
+            jr z,   _failed
+            bit     7,(ix+2*(QR_DIM+1))     ; 0
+            jr nz,  _failed
+            bit     7,(ix+3*(QR_DIM+1))     ; 0
+            jr nz,  _failed
+            bit     7,(ix+4*(QR_DIM+1))     ; 0
+            jr nz,  _failed
+            add     ix,bc
+            bit     7,(ix+10)               ; 0
+            jr nz,  _failed
+
+            ; pattern found.. add penalty by 40
+            add     hl,de
+_failed:    ;
+            pop     bc
+            pop     ix
+            ret
+
+penalty3_vertical2:
+            push    ix
+            push    bc
+            ld      bc,4*(QR_DIM+1)
+
+
+            ; index    0123456789a
+            ; pattern  10111010000 
+            ; next tab 11321214321
+_col_loop:
+            bit     7,(ix+0)                ; 0
+            jr nz,  _failed
+            bit     7,(ix+1*(QR_DIM+1))     ; 0
+            jr nz,  _failed
+            bit     7,(ix+2*(QR_DIM+1))     ; 0
+            jr nz,  _failed
+            bit     7,(ix+3*(QR_DIM+1))     ; 0
+            jr nz,  _failed
+            bit     7,(ix+4*(QR_DIM+1))     ; 1
+            jr z,   _failed
+            add     ix,bc
+            bit     7,(ix+0)                ; 0
+            jr nz,  _failed
+            bit     7,(ix+1*(QR_DIM+1))     ; 1
+            jr z,   _failed
+            bit     7,(ix+2*(QR_DIM+1))     ; 1
+            jr z,   _failed
+            bit     7,(ix+3*(QR_DIM+1))     ; 1
+            jr z,   _failed
+            bit     7,(ix+4*(QR_DIM+1))     ; 0
+            jr nz,  _failed
+            add     ix,bc
+            bit     7,(ix+10)               ; 1
+            jr z,   _failed
+
+            ; pattern found.. add penalty by 40
+            add     hl,de
+_failed:    ;
+            pop     bc
+            pop     ix
+            ret
 
 ;
 ; Calculate Penalty score 4
@@ -1512,8 +1755,7 @@ patterns:
             ; Generator polynomial for 3-L
 gen_15:     db      8,183,61,91,202,37,51,58,58,237,140,124,5,99,105
 qr_stm:     db      0                       ;
-mask_pattern:       ;
-            ds      32-15-1-16              ; space for ascii till space
+            ds      32-15-1                 ; space for ascii till space
             ;db      ' ',0,0,0,'$','%',0,0,0,0,'*','+',0,'-','.','/'
             db       36,0,0,0, 37, 38,0,0,0,0, 39, 40,0, 41, 42, 43
             ;db      '0','1','2','3','4','5','6','7','8','9',':'
@@ -1521,7 +1763,9 @@ mask_pattern:       ;
 qr_y:       db      0
 qr_x:       db      0
 qr_dir:     db      0
-            ds      6-3       ; skip ;<=>?@
+qr_final_mask:
+            dw      0
+            ds      6-5       ; skip ;<=>?@
             ;db      'A','B','C','D','E','F','G','H','I'
             db       10, 11, 12, 13, 14, 15, 16, 17, 18
             ;db      'J','K','L','M','N','O','P','Q','R'
@@ -1576,6 +1820,9 @@ PHR_BUF_PTR:                    ; encode phrase here
 ENC_BUF_PTR:
             ds  QR_CWDS_EWDS    ; code words + ecc words
 
+QR_PEN_PTR:
+QR_DST_PTR: ds      QR_DIM*4
+QR_TMP_PTR: ds      32*QR_DIM
 
 
             org ($+255) & 0xff00
@@ -1584,13 +1831,6 @@ ENC_BUF_PTR:
 GF_E2G_PTR: ds  256
 GF_G2E_PTR: ds  256
 
-            ; 256 bytes aligned
-QR_PEN_PTR:
-QR_DST_PTR: ds      QR_DIM*4
-
-            ; 256 bytes aligned
-            org ($+255) & 0xff00
-QR_TMP_PTR: ds      32*QR_DIM
 
 
 

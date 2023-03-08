@@ -11,7 +11,7 @@ qr = q.encode("3-L")
 #ima.show()
 
 qr_code = qr.generate_qr_code("http://www.deadcoderssociety.net/")
-print(qr.get_mask())
+#print(qr.get_mask())
 
 ima = im.fromarray(qr_code, mode="P")
 ima.show()

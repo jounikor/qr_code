@@ -814,23 +814,15 @@ class encode(object):
         ph = pc.encode_phrase(phrase,self.ecc_info.data_codewords)
         dat,ecc = self.calc_code_ecc_arrays(ph)
 
-        print("code words")
-
-        for n in dat[0]:
-            print(f"{n:02x},",end="")
-
-        print("ECC")
-        for n in ecc[0]:
-            print(f"{n:02x},",end="")
-
-
-        print()
-
-
-
+        #print("code words")
+        #for n in dat[0]:
+        #    print(f"{n:02x},",end="")
+        #print("ECC")
+        #for n in ecc[0]:
+        #    print(f"{n:02x},",end="")
+        #print()
 
         res = self.interleave_code_ecc_arrays(dat,ecc)
-    
         self.encode_layout(res)
 
         lowest_mask = -1
@@ -848,26 +840,10 @@ class encode(object):
                 lowest_mask = mask
                 lowest_penalty = a+b+c+d
 
-            self.mask = lowest_mask
-            self.encode_mask(lowest_mask)
-            self.insert_level_mask(lowest_mask)
-            self.insert_version(False)
+        self.mask = lowest_mask
+        self.encode_mask(lowest_mask)
+        self.insert_level_mask(lowest_mask)
+        self.insert_version(False)
 
         return self.qr
-
-#
-#
-#if (__name__ == "__main__"):   
-#
-#    #
-#    qr = encode("3-L")
-#    qr_code = qr.generate_qr_code("https://board.esxdos.org/")
-#    print(qr.get_mask())
-#
-#    #
-#    ima = im.fromarray(qr_code, mode="P")
-#    ima.show()
-
-
-
 

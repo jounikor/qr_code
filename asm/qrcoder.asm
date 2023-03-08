@@ -26,14 +26,13 @@ QR_CWDS         equ     55
 QR_MAX_PHRASE   equ     76
 
 
+QR_FORCE_MASK   equ     3
+
 
             org $8000
 
 
 main:
-            ;call    decode_qr_template
-            ;call    print_2
-            ;ret
             di
             exx
             push    hl
@@ -52,32 +51,32 @@ main:
             ld      a,33
             call    encode_phrase
             call    polydiv
-            
+
             ; There is no need to intealeave 3-L QR-Code
             ;call    interleave
 
             ; here be the masking 8x and encoding layout..
             ld      b,8         ;
             ld      ix,mask0_kernel
-            ld      hl,0
-            push    hl
-
 _mask_loop:
             push    bc
             
             ; Encode codewords, ecc words and padding to qr-code bits layout
             call    encode_layout
+            
             ; Apply mask pattern (0 to 7)
             call    apply_mask
+            
             ; And insert the mask information with ecc into the qr-code
-            ld      d,(ix-1)
-            ld      e,(ix-2)
+            ; Note the unusual ordering.. big endian \o/
+            ld      d,(ix-2)
+            ld      e,(ix-1)
             call    insert_mask
-
+            
             ; Calculate total sum of all 4 penalties into HL
             ; All penalty functions could be combined but..
             call    calc_penalty1
-            pop     hl
+            ld      hl,0
             add     hl,de
             push    hl
             call    calc_penalty2
@@ -103,10 +102,10 @@ _mask_loop:
             ld      ixl,e
 
             pop     bc
-            ;djnz    _mask_loop
+            djnz    _mask_loop
 
             ; Find the mask with the lowest penalty.
-            
+penalties:
             ld      de,32767
             ld      b,8         ;
             ld      ix,mask0_kernel
@@ -121,22 +120,27 @@ _find_smallest:
             ex      de,hl
             ld      (qr_final_mask),ix
 _not_bigger:
-            ld      h,(ix-3)
-            ld      l,(ix-4)
-            ld      ixh,h
-            ld      ixl,l
+            ld      a,(ix-3)
+            ld      ixh,a
+            ld      a,(ix-4)
+            ld      ixl,a
             djnz    _find_smallest
 
+            ; Render final qr-code
             call    encode_layout
             
+            ; Based on the penalty calculations use this mask..
             ld      ix,(qr_final_mask)
+            ;ld      ix,mask2_kernel
             call    apply_mask
 
-            ld      d,(ix-3)
-            ld      e,(ix-4)
+            ; Note the big endian byte order..
+            ld      d,(ix-2)
+            ld      e,(ix-1)
             call   insert_mask
             
-            call    print_2
+            ; Render..
+            call    print_1
 
             exx
             pop     bc
@@ -259,9 +263,77 @@ mask_h_delta:
             db       1, 1, 1, 1, 1, 2,   1,14, 1, 1, 1, 1, 1, 1,7
 
 ;
+; Debug QR-Code render to screen..
 ;
 ;
+print_1:
+            ld      ix,QR_TMP_PTR
+            ld      b,64
+            ld      c,112
+_print_main:
+            call    get_address_BC
+
+            ld      e,QR_DIM
+            ld      a,1
+_bit_loop:
+            ld      d,(ix+0)
+            inc     ix
+            sla     d
+            adc     a,a
+            jr nc,  _not_full
+            ld      (hl),a
+            inc     hl
+            ld      a,1
+_not_full:
+            dec     e
+            jr nz,  _bit_loop
+
+            ; last byte is 3 bits short..
+            add     a,a
+            add     a,a
+            add     a,a
+            ld      (hl),a
+
+            inc     ix      ; skip hidden alignment byte
+            inc     b
+            ld      a,QR_DIM+64
+            cp      b
+            jr nz,  _print_main
+
+            ret
 ;
+; Inputs:
+;  B = Y pos
+;  C = X pos
+;
+; Returns:
+;  HL = ptr to screen
+;
+; Trashes:
+;  A
+;
+get_address_BC:
+            push    bc
+            ld      l,b
+			ld      h,0
+			dup 5
+			add     hl,hl
+			edup
+			ld      a,HIGH($4000)
+			add     a,h
+			ld      h,a
+			ld      a,c			;
+			rra				    ;
+			rra
+			rra
+			and     00011111b	; 
+			or      l			;
+			ld      l,a			;
+			pop     bc
+            ret
+
+;
+; Debug QR-Code printing to attributes..
 ;
 print_2:
             ld      de,QR_TMP_PTR
@@ -904,6 +976,7 @@ _permanent_module:
 ;
             dw      0                       ; penalty
             dw      mask1_kernel            ; next kernel
+            ;       D         E
             db      11101111b,10001001b     ; L = 3, mask 0
 mask0_kernel:
             ld      a,b
@@ -1838,7 +1911,7 @@ GF_G2E_PTR: ds  256
 
 test_string:        ; 33 chars
             db      "HTTP://WWW.DEADCODERSSOCIETY.NET/"
-
+; 33,11,26,166,95,159,215,220,14,222,160,18,172,69,82,52,34,34,51,138,119,222,84,157,96,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17
 
     END main
 

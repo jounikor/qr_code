@@ -164,10 +164,9 @@ class polydiv(galois_field_256):
         genlen = len(gen)
 
         # debug 1
-        for a in poly:
-            print(f"0x{a:02x},",end="")
-
-        print()
+        #for a in poly:
+        #    print(f"0x{a:02x},",end="")
+        #print()
 
         # bytearray zeroes each index by default
         p = bytearray(polylen+genlen)
@@ -196,10 +195,9 @@ class polydiv(galois_field_256):
                 p[n+m] = r
         
         # debug 2
-        print("result")
-        for a in p[n:n+genlen]:
-            print(f"0x{a:02x},",end="")
-
-        print()
+        #print("result")
+        #for a in p[n:n+genlen]:
+        #    print(f"0x{a:02x},",end="")
+        #print()
 
         return p[n:n+genlen]

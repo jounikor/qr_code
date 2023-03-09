@@ -1,5 +1,5 @@
 ;
-; qr-codes in Z80 v0.1 (c) Jouni 'Mr.Spiv' korhonen
+; qr-codes in Z80 v0.2 (c) Jouni 'Mr.Spiv' korhonen
 ; This implementation supports only 3-L without
 ; quiet zone..
 ;
@@ -15,7 +15,17 @@
 ; away entirely causes computation of penalties for each possible mask
 ; and selecting auto mask accordingly.
 
+;QR_FORCE_MASK   equ     mask0_kernel
+;QR_FORCE_MASK   equ     mask1_kernel
+;QR_FORCE_MASK   equ     mask2_kernel
 ;QR_FORCE_MASK   equ     mask3_kernel
+;QR_FORCE_MASK   equ     mask4_kernel
+;QR_FORCE_MASK   equ     mask5_kernel
+;QR_FORCE_MASK   equ     mask6_kernel
+QR_FORCE_MASK   equ     mask7_kernel
+
+; If defined then 1 pixel "empty" border is added to left
+;QR_ADD_BORDER   equ     1
 
 ; Following constants need to be defined or reserved space during
 ; compilation:
@@ -28,8 +38,6 @@
 ; GF_E2G_PTR    256 octet alignment, size 256
 
 QR_DIM          equ     29
-QR_VER          equ     3
-QR_LEV          equ     'L'
 QR_CWDS_EWDS    equ     (55+15)*8
 QR_CWDS         equ     55            
 QR_MAX_PHRASE   equ     76
@@ -47,11 +55,6 @@ QR_BLACK        equ     10000000b
 QR_WHITE_T      equ     00000001b   ; bit 0 == 1 -> can be overwritten
 QR_BLACK_T      equ     10000001b
 QR_EMPTY        equ     01000001b
-
-MASK_PTR    MACRO   mask
-            ld      ix,mask
-            ENDM
-
 
             org $8000
 
@@ -75,7 +78,7 @@ main:
             
             ld      b,64
             ld      c,112
-            call    qr_code_render
+            call    qr_code_render_spectrum
 
             exx
             pop     bc
@@ -216,7 +219,7 @@ _not_bigger:
             ; Encode codewords, ecc words and padding to qr-code bits layout
             call    encode_layout
             
-            MASK_PTR    QR_FORCE_MASK
+            ld      ix,QR_FORCE_MASK
             call    apply_mask
         ENDIF
 
@@ -240,11 +243,45 @@ _not_bigger:
 ;  None.
 ;
 ; Trashes:
-;  IY is not trashed.
+;  A,BC,DE,HL,IX,B'
 ;
-qr_code_render:
-            call    print_1
+qr_code_render_spectrum:
+            ld      ix,QR_TMP_PTR
+            ld      b,64
+            ld      c,112
+            exx
+            ld      b,QR_DIM
+_line_loop: ;
+            exx
+            call    get_address_BC
+            call    print_1_line
+            inc     b
+            exx
+            djnz    _line_loop
+            exx
             ret
+
+;
+; Make a pixel representation of the QR-Code (interleaved).
+;
+; Inputs:
+;  HL = ptr to 4*QR_DIM octets buffer.
+;
+; Returns:
+;  None.
+;
+; Trashes:
+;  A,BC,DE,IX
+;
+qr_code_render_mem:
+            ld      ix,QR_TMP_PTR
+            ld      b,QR_DIM
+_line_loop:
+            call    print_1_line
+            djnz    _line_loop
+            ret
+            
+
 
 ;
 ; Generate Galois Field tables
@@ -352,19 +389,28 @@ mask_h_delta:
             db       1, 1, 1, 1, 1, 2,   1,14, 1, 1, 1, 1, 1, 1,7
 
 ;
-; Debug QR-Code rendering onto the screen..
+; Bitwise QR-Code rendering into the RAM.
+; If QR_ADD_BORDER is defined the QR-Code is pushed 1 pixel right so
+; that it has 1 pixel border or the left and 2 pixel border on the right.
 ;
 ; Inputs:
-;  B = Y pos
-;  C = X pos
+;  IX = ptr to tmp qr-code
+;  HL = ptr to dst memory
 ;
-print_1:
-            ld      ix,QR_TMP_PTR
-_print_main:
-            call    get_address_BC
-
+; Returns:
+;  IX = ptr to next row in the tmp qr-code.
+;  HL = ptr to next mem area on the 'row'.
+;
+; Trashes:
+;  A,DE
+;
+print_1_line:
             ld      e,QR_DIM
+        IF DEFINED QR_ADD_BORDER
+            ld      a,2
+        ELSE
             ld      a,1
+        ENDIF
 _bit_loop:
             ld      d,(ix+0)
             inc     ix
@@ -378,18 +424,15 @@ _not_full:
             dec     e
             jr nz,  _bit_loop
 
-            ; last byte is 3 bits short..
+            ; last byte is 2 or 3 bits short..
+        IF !DEFINED QR_ADD_BORDER
             add     a,a
+        ENDIF
             add     a,a
             add     a,a
             ld      (hl),a
-
+            inc     hl      ; next octet
             inc     ix      ; skip hidden alignment byte
-            inc     b
-            ld      a,QR_DIM+64
-            cp      b
-            jr nz,  _print_main
-
             ret
 ;
 ; Calculate screen coordinates from X and Y positions.
@@ -553,7 +596,7 @@ _div_loop:  ;
 ;  A,BC,DE,HL,IX
 ;
 encode_phrase:
-            cp      76+1
+            cp      QR_MAX_PHRASE+1
             ret nc
 
             ld      de,PHR_BUF_PTR

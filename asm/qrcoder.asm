@@ -1,18 +1,21 @@
 ;
-; qr-codes in Z80 v0.1 (c) Jouni korhonen
+; qr-codes in Z80 v0.1 (c) Jouni 'Mr.Spiv' korhonen
 ; This implementation supports only 3-L without
 ; quiet zone..
 ;
-; Target is ZX Spectrum
+; Target is ZX Spectrum but apart from the example rendering
+; function nothing is ZX Spectrum specific.
 ;
 ; Compiled using Pasmo (see https://github.com/jounikor/pasmo)
 ; pasmo -1 --tapbas --alocal qrcoder.asm tap.tap tap.map
 ;
 ; The code is not ROMmable if QR_FORCE_MASK is not used.
-;
-;
-;
+; Define this to 'mask0_kernel' to mask7_kernel' if you want to force
+; a specific mask and ; save a lot of computation. Commenting the define
+; away entirely causes computation of penalties for each possible mask
+; and selecting auto mask accordingly.
 
+;QR_FORCE_MASK   equ     mask3_kernel
 
 ; Following constants need to be defined or reserved space during
 ; compilation:
@@ -45,15 +48,16 @@ QR_WHITE_T      equ     00000001b   ; bit 0 == 1 -> can be overwritten
 QR_BLACK_T      equ     10000001b
 QR_EMPTY        equ     01000001b
 
-
-; Define this if you want to force a specific mask and
-; save a lot of computation..
-QR_FORCE_MASK   equ     3
+MASK_PTR    MACRO   mask
+            ld      ix,mask
+            ENDM
 
 
             org $8000
 
-
+;
+; Some sample code..
+;
 main:
             di
             exx
@@ -63,21 +67,73 @@ main:
             exx
 
 
+            call    qr_code_init
+
+            ld      ix,test_string
+            ld      a,33
+            call    qr_code_generate
+            
+            ld      b,64
+            ld      c,112
+            call    qr_code_render
+
+            exx
+            pop     bc
+            pop     de
+            pop     hl
+            exx
+            ei
+
+            ret
+
+
+
+;----------------------------------------------------------------------------
+;
+; Initialize QR-Code generation.
+;
+; Inputs:
+;  None.
+; 
+; Returns:
+;  None.
+;
+; Trashes:
+;  Assume all except IY.
+;
+qr_code_init:
             ; gf_init and decode_qr_layout need to be called only
             ; once for any number of calculated QR-Codes.
             call    gf_init
             call    decode_qr_template
+            ret
 
+;
+; Generate QR-Code (assume only 3-L)
+;
+; Inputs:
+;  IX = ptr to phrase. Max length is 76 characters.
+;  A = length of the phrase.
+;
+; Returns:
+;  C_flag = 0 if phrase is too long
+;
+; Trashes:
+;  IY is not trashed.
+;
+qr_code_generate:
             ;
             ; Make sure text phrase is not longer than 76 characters.
-            ld      ix,test_string
-            ld      a,33
             call    encode_phrase
+            ret nc
+
             call    polydiv
 
             ; There is no need to intealeave 3-L QR-Code
             ;call    interleave
 
+        IF  !DEFINED  QR_FORCE_MASK
+        
             ; here be the masking 8x and encoding layout..
             ld      b,8         ;
             ld      ix,mask0_kernel
@@ -86,7 +142,7 @@ _mask_loop:
             
             ; Encode codewords, ecc words and padding to qr-code bits layout
             call    encode_layout
-            
+
             ; Apply mask pattern (0 to 7)
             call    apply_mask
             
@@ -154,31 +210,41 @@ _not_bigger:
             
             ; Based on the penalty calculations use this mask..
             ld      ix,(qr_final_mask)
-            ;ld      ix,mask2_kernel
             call    apply_mask
+
+        ELSE
+            ; Encode codewords, ecc words and padding to qr-code bits layout
+            call    encode_layout
+            
+            MASK_PTR    QR_FORCE_MASK
+            call    apply_mask
+        ENDIF
 
             ; Note the big endian byte order..
             ld      d,(ix-2)
             ld      e,(ix-1)
             call   insert_mask
-            
-            ; Render..
-            call    print_1
-
-            exx
-            pop     bc
-            pop     de
-            pop     hl
-            exx
-            ei
-ll
-            halt
-    jr ll
+           
+            scf         ; C_flag = 1 for OK
             ret
 
 
-
-
+;
+; Render QR-Code (on ZX Spectrum..)
+;
+; Inputs:
+;  B = y
+;  C = x
+;
+; Returns:
+;  None.
+;
+; Trashes:
+;  IY is not trashed.
+;
+qr_code_render:
+            call    print_1
+            ret
 
 ;
 ; Generate Galois Field tables
@@ -288,11 +354,12 @@ mask_h_delta:
 ;
 ; Debug QR-Code rendering onto the screen..
 ;
+; Inputs:
+;  B = Y pos
+;  C = X pos
 ;
 print_1:
             ld      ix,QR_TMP_PTR
-            ld      b,64
-            ld      c,112
 _print_main:
             call    get_address_BC
 
@@ -480,13 +547,15 @@ _div_loop:  ;
 ;  A  = string length
 ;
 ; Returns:
-;  None
+;  C_flag = 0 if error, C_flag = 1 if OK.
 ;
 ; Trashes:
 ;  A,BC,DE,HL,IX
 ;
-
 encode_phrase:
+            cp      76+1
+            ret nc
+
             ld      de,PHR_BUF_PTR
             push    de
             ;
@@ -620,6 +689,7 @@ _pad:       ld      (de),a
             djnz    _pad
 
 _no_alignment:
+            scf         ; C_flag = 1
             ret
 
 ;
@@ -1884,7 +1954,8 @@ qr_end:
 ;
 ; Follwing buffers are freely relocatable. Note that both
 ; GF_E2G_PTR and GF_G2E_PTR must have 256 octet alignment.
-;
+; Below code can be commented out and then use defines themselves
+; for memory pointers.
 
 PHR_BUF_PTR:                    ; encode phrase here
             ds      PHR_BUF_SIZE    ; QR_CWDS

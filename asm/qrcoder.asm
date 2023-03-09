@@ -1043,15 +1043,9 @@ _loop:
 
 _ret:       jr nz,  _do_not_flip 
             ld      a,(hl)
-        IF 1
             bit     0,a
             jr z,   _permanent_module
             xor     10000000b
-        ELSE
-            cp      QR_EMPTY
-            jr nz,  _permanent_module
-            xor     11000000b
-        ENDIF
 
             ld      (hl),a
 _do_not_flip:
@@ -1065,6 +1059,7 @@ _permanent_module:
             jp p,   _main
 
             ret
+
 
 
 ;
@@ -1306,6 +1301,8 @@ mask7_kernel:
             pop     bc
             ret
 
+        
+        IF  !DEFINED QR_FORCE_MASK
 
 ;
 ; Calculate penalty score 1
@@ -1860,6 +1857,9 @@ pen4_precent_tab:
             db      336>>2, 378>>2, 420>>2, 462>>2, 504>>2, 546>>2, 588>>2
             db      630>>2, 672>>2, 714>>2, 756>>2, 798>>2, 841>>2
             db      255 ; end mark
+
+        ENDIF       ; !DEFINED QR_FORCE_MASK
+
 ;
 ; Calculate quotient and modulo 3 of A. The maximum value of A can be 192.
 ;
@@ -1926,6 +1926,7 @@ _do_add:    add     a,c
 _done:      ;
             pop     bc
             ret
+
 
 ; Variables and tables.. the start must be 256 octet aligned.
 ;

@@ -26,6 +26,10 @@ The following files constitute the QR-Code generator:
   qr/phrasecoder.py - Encoding of input phrase.
   qr/qrcoder.py     - All the rest of QR-Code encoding.
   qr/qrpenalty.py   - Implements the 4 penalty algorights.
+  test.py           - A test program driving the QR-Code generation
+  asm/qrcoder.asm   - A Z80 assembly implementation of the 3-L QR-Code
+                      generation. Not a speed wonder if you choose auto mask
+                      selection.
 
 Thanks to following great tutorials and online encoders
 for providing testing possibility:

@@ -7,16 +7,22 @@
 ;
 ; Compiled using Pasmo (see https://github.com/jounikor/pasmo)
 ; pasmo -1 --tapbas --alocal qrcoder.asm tap.tap tap.map
+;
+; The code is not ROMmable if QR_FORCE_MASK is not used.
+;
+;
+;
 
 
-QR_DST_ADDR equ $c000
-QR_TMP_END_PTR  equ     QR_TMP_PTR+QR_DIM*(QR_DIM+1)-2
-
-QR_WHITE        equ     00000000b   ; bit 0 == 0 -> permanent pixel/module
-QR_BLACK        equ     10000000b
-QR_WHITE_T      equ     00000001b   ; bit 0 == 1 -> can be overwritten
-QR_BLACK_T      equ     10000001b
-QR_EMPTY        equ     01000001b
+; Following constants need to be defined or reserved space during
+; compilation:
+;
+; PHR_BUF_PTR   no alignment, size PHR_BUF_SIZE octets
+; PHR_BUF_PTR   no alignment, size ENC_BUF_SIZE octets
+; QR_DST_PTR    no alignment, size QR_DST_SIZE <- place qr-code here
+; QR_TMP_PTR    no alignment, size QR_TMP_SIZE
+; GF_G2E_PTR    256 octet alignment, size 256
+; GF_E2G_PTR    256 octet alignment, size 256
 
 QR_DIM          equ     29
 QR_VER          equ     3
@@ -25,7 +31,23 @@ QR_CWDS_EWDS    equ     (55+15)*8
 QR_CWDS         equ     55            
 QR_MAX_PHRASE   equ     76
 
+;
+PHR_BUF_SIZE    equ     QR_CWDS
+ENC_BUF_SIZE    equ     QR_CWDS_EWDS
+QR_DST_SIZE     equ     QR_DIM*4
+QR_TMP_SIZE     equ     (QR_DIM+1)*QR_DIM
+QR_TMP_END_PTR  equ     QR_TMP_PTR+QR_DIM*(QR_DIM+1)-2
 
+; 
+QR_WHITE        equ     00000000b   ; bit 0 == 0 -> permanent pixel/module
+QR_BLACK        equ     10000000b
+QR_WHITE_T      equ     00000001b   ; bit 0 == 1 -> can be overwritten
+QR_BLACK_T      equ     10000001b
+QR_EMPTY        equ     01000001b
+
+
+; Define this if you want to force a specific mask and
+; save a lot of computation..
 QR_FORCE_MASK   equ     3
 
 
@@ -39,6 +61,7 @@ main:
             push    de
             push    bc
             exx
+
 
             ; gf_init and decode_qr_layout need to be called only
             ; once for any number of calculated QR-Codes.
@@ -263,7 +286,7 @@ mask_h_delta:
             db       1, 1, 1, 1, 1, 2,   1,14, 1, 1, 1, 1, 1, 1,7
 
 ;
-; Debug QR-Code render to screen..
+; Debug QR-Code rendering onto the screen..
 ;
 ;
 print_1:
@@ -302,6 +325,9 @@ _not_full:
 
             ret
 ;
+; Calculate screen coordinates from X and Y positions.
+; Made just to work.. no attempt to make it fast.
+;
 ; Inputs:
 ;  B = Y pos
 ;  C = X pos
@@ -313,63 +339,31 @@ _not_full:
 ;  A
 ;
 get_address_BC:
-            push    bc
-            ld      l,b
-			ld      h,0
-			dup 5
-			add     hl,hl
-			edup
-			ld      a,HIGH($4000)
-			add     a,h
-			ld      h,a
-			ld      a,c			;
-			rra				    ;
-			rra
-			rra
-			and     00011111b	; 
-			or      l			;
-			ld      l,a			;
-			pop     bc
+            ld      a,00111000b
+            and     b
+            add     a,a
+            add     a,a
+            ld      l,a
+            ld      a,11111000b
+            and     c
+            rrca
+            rrca
+            rrca
+            or      l
+            ld      l,a
+
+            ld      a,00000111b
+            and     b
+            ld      h,a
+            ld      a,11000000b
+            and     b
+            rrca
+            rrca
+            rrca
+            or      h
+            add     a,HIGH($4000)
+            ld      h,a
             ret
-
-;
-; Debug QR-Code printing to attributes..
-;
-print_2:
-            ld      de,QR_TMP_PTR
-            ld      hl,$5800
-
-            ld      c,24
-_main:
-
-            ld      b,30
-_loop:      ld      a,(de)
-            inc     de
-
-            and     11111110b
-            jr z,   _white
-
-            xor     10000000b
-            jr z,   _black
-
-            ;and     00111111b
-            ld      a,00001001b
-
-_white:     xor     00111111b
-_black:
-            ld      (hl),a
-            inc     hl
-            djnz    _loop
-           
-            inc     hl
-            inc     hl
-
-            dec     c
-            jr nz,  _main
-
-            ret
-
-
 
 ; Polynomial division.
 ;
@@ -1820,7 +1814,8 @@ _done:      ;
             pop     bc
             ret
 
-
+; Variables and tables.. the start must be 256 octet aligned.
+;
 
             org     ($+255) & 0xff00
 alnum_map:
@@ -1886,32 +1881,32 @@ qr_template:
             db      $00     ; end mark
 qr_end:
 
-
+;
+; Follwing buffers are freely relocatable. Note that both
+; GF_E2G_PTR and GF_G2E_PTR must have 256 octet alignment.
+;
 
 PHR_BUF_PTR:                    ; encode phrase here
-            ds  QR_CWDS
+            ds      PHR_BUF_SIZE    ; QR_CWDS
 ENC_BUF_PTR:
-            ds  QR_CWDS_EWDS    ; code words + ecc words
+            ds      ENC_BUF_SIZE    ; QR_CWDS_EWDS i.e. code words + ecc words
 
-QR_PEN_PTR:
-QR_DST_PTR: ds      QR_DIM*4
-QR_TMP_PTR: ds      32*QR_DIM
+QR_DST_PTR: ds      QR_DST_SIZE ; QR_DIM*4
+QR_TMP_PTR: ds      QR_TMP_SIZE ; 30*QR_DIM
 
 
             org ($+255) & 0xff00
 
             ; These two table must be 256 bytes each and in 256 bytes alignment.
-GF_E2G_PTR: ds  256
-GF_G2E_PTR: ds  256
-
-
-
-
-
+GF_E2G_PTR: ds      256
+GF_G2E_PTR: ds      256
 
 test_string:        ; 33 chars
             db      "HTTP://WWW.DEADCODERSSOCIETY.NET/"
-; 33,11,26,166,95,159,215,220,14,222,160,18,172,69,82,52,34,34,51,138,119,222,84,157,96,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17
+            ; 33,11,26,166,95,159,215,220,14,222,160,18,172,69,82,52,34,34
+            ; 51,138,119,222,84,157,96,236,17,236,17,236,17,236,17,236,17
+            ; 236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236
+            ; 17,236,17
 
     END main
 

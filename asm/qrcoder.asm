@@ -1,28 +1,51 @@
-;
-; qr-codes in Z80 v0.2 (c) Jouni 'Mr.Spiv' korhonen
-; This implementation supports only 3-L without
-; quiet zone..
-;
-; Target is ZX Spectrum but apart from the example rendering
-; function nothing is ZX Spectrum specific.
-;
 ; Compiled using Pasmo (see https://github.com/jounikor/pasmo)
 ; pasmo -1 --tapbas --alocal qrcoder.asm tap.tap tap.map
 ;
-; The code is not ROMmable if QR_FORCE_MASK is not used.
+; The code is not ROMmable if QR_FORCE_MASK (i.e. set to 0) is not used.
 ; Define this to 'mask0_kernel' to mask7_kernel' if you want to force
 ; a specific mask and ; save a lot of computation. Commenting the define
 ; away entirely causes computation of penalties for each possible mask
 ; and selecting auto mask accordingly.
 
-;QR_FORCE_MASK   equ     mask0_kernel
-;QR_FORCE_MASK   equ     mask1_kernel
-;QR_FORCE_MASK   equ     mask2_kernel
-;QR_FORCE_MASK   equ     mask3_kernel
-;QR_FORCE_MASK   equ     mask4_kernel
-;QR_FORCE_MASK   equ     mask5_kernel
-;QR_FORCE_MASK   equ     mask6_kernel
-QR_FORCE_MASK   equ     mask7_kernel
+QR_FORCE_MASK0  equ 1
+QR_FORCE_MASK1  equ 2
+QR_FORCE_MASK2  equ 4
+QR_FORCE_MASK3  equ 8
+QR_FORCE_MASK4  equ 16
+QR_FORCE_MASK5  equ 32
+QR_FORCE_MASK6  equ 64
+QR_FORCE_MASK7  equ 128
+
+QR_FORCE_MASK	equ	QR_FORCE_MASK1		; Use only mask7 kernel
+;QR_FORCE_MASK	equ	0					; Use all kernels + penalties
+
+	IF DEFINED QR_FORCE_MASK
+		IF QR_FORCE_MASK & 1
+			QR_MASK_PTR	equ	mask0_kernel
+		ENDIF
+		IF QR_FORCE_MASK & 2
+			QR_MASK_PTR	equ	mask1_kernel
+		ENDIF
+		IF QR_FORCE_MASK & 4
+			QR_MASK_PTR	equ	mask2_kernel
+		ENDIF
+		IF QR_FORCE_MASK & 8
+			QR_MASK_PTR	equ	mask3_kernel
+		ENDIF
+		IF QR_FORCE_MASK & 16
+			QR_MASK_PTR	equ	mask4_kernel
+		ENDIF
+		IF QR_FORCE_MASK & 32
+			QR_MASK_PTR	equ	mask5_kernel
+		ENDIF
+		IF QR_FORCE_MASK & 64
+			QR_MASK_PTR	equ	mask6_kernel
+		ENDIF
+		IF QR_FORCE_MASK & 128
+			QR_MASK_PTR	equ	mask7_kernel
+		ENDIF
+	ENDIF
+
 
 ; If defined then 1 pixel "empty" border is added to left
 ;QR_ADD_BORDER   equ     1
@@ -58,6 +81,9 @@ QR_EMPTY        equ     01000001b
 
             org $8000
 
+TEST_SPECTRUM	equ		1
+
+
 ;
 ; Some sample code..
 ;
@@ -73,13 +99,13 @@ main:
             call    qr_code_init
 
             ld      ix,test_string
-            ld      a,33
+            ld      a,TEST_STR_LEN
             call    qr_code_generate
-            
+    IF DEFINED TEST_SPECTRUM    
             ld      b,64
             ld      c,112
             call    qr_code_render_spectrum
-
+	ENDIF
             exx
             pop     bc
             pop     de
@@ -90,7 +116,153 @@ main:
             ret
 
 
+;TEST_STR_LEN	equ	22
+test_string:        ; 22 chars
+            ;db      "HTTP://WWW.SCOOPEX.US/"
+TEST_STR_LEN	equ	33
+            db      "HTTP://WWW.DEADCODERSSOCIETY.NET/"
 
+	IF DEFINED TEST_SPECTRUM
+;
+; Render QR-Code (on ZX Spectrum..)
+;
+; Inputs:
+;  B = y
+;  C = x
+;
+; Returns:
+;  None.
+;
+; Trashes:
+;  A,BC,DE,HL,IX,B'
+;
+qr_code_render_spectrum:
+            ld      ix,QR_TMP_PTR
+            ld      b,64
+            ld      c,112
+            exx
+            ld      b,QR_DIM
+_line_loop: ;
+            exx
+            call    get_address_BC
+            call    print_1_line
+            inc     b
+            exx
+            djnz    _line_loop
+            exx
+            ret
+
+;
+; Calculate screen coordinates from X and Y positions.
+; Made just to work.. no attempt to make it fast.
+;
+; Inputs:
+;  B = Y pos
+;  C = X pos
+;
+; Returns:
+;  HL = ptr to screen
+;
+; Trashes:
+;  A
+;
+get_address_BC:
+            ld      a,00111000b
+            and     b
+            add     a,a
+            add     a,a
+            ld      l,a
+            ld      a,11111000b
+            and     c
+            rrca
+            rrca
+            rrca
+            or      l
+            ld      l,a
+
+            ld      a,00000111b
+            and     b
+            ld      h,a
+            ld      a,11000000b
+            and     b
+            rrca
+            rrca
+            rrca
+            or      h
+            add     a,HIGH($4000)
+            ld      h,a
+            ret
+	ENDIF
+
+
+;----------------------------------------------------------------------------
+; Start pof QR code
+			org		($+255) & 0xff00
+; Note! the following tables and variabled must be 256 bytes aligned.
+;
+
+qr_sta:
+alnum_map:
+patterns:
+            ; Generator polynomial for 3-L
+gen_15:     db      8,183,61,91,202,37,51,58,58,237,140,124,5,99,105
+qr_stm:     db      0                       ;
+            ds      32-15-1                 ; space for ascii till space
+            ;db      ' ',0,0,0,'$','%',0,0,0,0,'*','+',0,'-','.','/'
+            db       36,0,0,0, 37, 38,0,0,0,0, 39, 40,0, 41, 42, 43
+            ;db      '0','1','2','3','4','5','6','7','8','9',':'
+            db        0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  44
+qr_y:       db      0
+qr_x:       db      0
+qr_dir:     db      0
+qr_final_mask:
+            dw      0
+            ds      6-5       ; skip ;<=>?@
+            ;db      'A','B','C','D','E','F','G','H','I'
+            db       10, 11, 12, 13, 14, 15, 16, 17, 18
+            ;db      'J','K','L','M','N','O','P','Q','R'
+            db       19, 20, 21, 22, 23, 24, 25, 26, 27
+            ;db      'S','T','U','V','W','X','Y','Z' 
+            db       28, 29, 30, 31, 32, 33, 34, 35
+            ; after this we have 256-90 left for this 256 bytes segment
+
+
+; Format of the RLE:
+;  00 nnnnnn -> white (00000000b), 1 < n < 63
+;  01 nnnnnn -> empty (01000000b), 1 < n < 63
+;  10 nnnnnn -> black (10000000b), 1 < n < 63
+;  11 nnnnnn -> black-white alternating, 1 < n < 63
+;  00 000000 -> end mark
+;
+qr_template:
+            db      $86,$c3,$4c,$01,$86,$c4
+            db      $04,$c3,$4c,$01,$c2,$04,$c4
+            db      $82,$c5,$4c,$01,$c2,$82,$c6
+            db      $82,$c5,$4c,$01,$c2,$82,$c6
+            db      $82,$c5,$4c,$01,$c2,$82,$c6
+            db      $04,$c3,$4c,$01,$c2,$04,$c2
+            db      $86,$d0,$88,$09,$4c,$09
+            db      $89,$4c,$89
+
+            db      $46,$01,$5d,$81
+            db      $5d,$01,$5d,$81
+            db      $5d,$01,$5d,$81
+            db      $5d,$01,$5d,$81
+            db      $5d,$01,$5d,$81
+            db      $5d,$01,$5d,$81
+
+            db      $4d,$85,$45
+
+            db      $08,$81,$4b,$81,$03,$81,$45
+            db      $86,$c3,$4b,$c4,$81,$45
+            db      $81,$05,$c3,$4b,$81,$03,$81,$45
+            db      $c2,$82,$c5,$4b,$85,$45
+            db      $c2,$82,$c5,$55
+            db      $c2,$82,$c5,$55
+            db      $81,$05,$c3,$55
+            db      $86,$c3,$55
+
+            db      $00     ; end mark
 ;----------------------------------------------------------------------------
 ;
 ; Initialize QR-Code generation.
@@ -135,14 +307,11 @@ qr_code_generate:
             ; There is no need to intealeave 3-L QR-Code
             ;call    interleave
 
-        IF  !DEFINED  QR_FORCE_MASK
+        IF  QR_FORCE_MASK = 0
         
             ; here be the masking 8x and encoding layout..
-            ld      b,8         ;
             ld      ix,mask0_kernel
 _mask_loop:
-            push    bc
-            
             ; Encode codewords, ecc words and padding to qr-code bits layout
             call    encode_layout
 
@@ -180,11 +349,11 @@ _mask_loop:
             ; Advance to the next mask pattern
             ld      d,(ix-3)
             ld      e,(ix-4)
-            ld      ixh,d
+			ld      ixh,d
             ld      ixl,e
-
-            pop     bc
-            djnz    _mask_loop
+			ld		a,d
+			or		e
+			jr nz,	_mask_loop
 
             ; Find the mask with the lowest penalty.
 penalties:
@@ -219,7 +388,7 @@ _not_bigger:
             ; Encode codewords, ecc words and padding to qr-code bits layout
             call    encode_layout
             
-            ld      ix,QR_FORCE_MASK
+            ld      ix,QR_MASK_PTR
             call    apply_mask
         ENDIF
 
@@ -231,56 +400,6 @@ _not_bigger:
             scf         ; C_flag = 1 for OK
             ret
 
-
-;
-; Render QR-Code (on ZX Spectrum..)
-;
-; Inputs:
-;  B = y
-;  C = x
-;
-; Returns:
-;  None.
-;
-; Trashes:
-;  A,BC,DE,HL,IX,B'
-;
-qr_code_render_spectrum:
-            ld      ix,QR_TMP_PTR
-            ld      b,64
-            ld      c,112
-            exx
-            ld      b,QR_DIM
-_line_loop: ;
-            exx
-            call    get_address_BC
-            call    print_1_line
-            inc     b
-            exx
-            djnz    _line_loop
-            exx
-            ret
-
-;
-; Make a pixel representation of the QR-Code (interleaved).
-;
-; Inputs:
-;  HL = ptr to 4*QR_DIM octets buffer.
-;
-; Returns:
-;  None.
-;
-; Trashes:
-;  A,BC,DE,IX
-;
-qr_code_render_mem:
-            ld      ix,QR_TMP_PTR
-            ld      b,QR_DIM
-_line_loop:
-            call    print_1_line
-            djnz    _line_loop
-            ret
-            
 
 
 ;
@@ -389,6 +508,27 @@ mask_h_delta:
             db       1, 1, 1, 1, 1, 2,   1,14, 1, 1, 1, 1, 1, 1,7
 
 ;
+; Make a pixel representation of the QR-Code (interleaved).
+;
+; Inputs:
+;  HL = ptr to 4*QR_DIM octets buffer.
+;
+; Returns:
+;  None.
+;
+; Trashes:
+;  A,BC,DE,IX
+;
+qr_code_render_mem:
+            ld      ix,QR_TMP_PTR
+            ld      b,QR_DIM
+_line_loop:
+            call    print_1_line
+            djnz    _line_loop
+            ret
+            
+
+;
 ; Bitwise QR-Code rendering into the RAM.
 ; If QR_ADD_BORDER is defined the QR-Code is pushed 1 pixel right so
 ; that it has 1 pixel border or the left and 2 pixel border on the right.
@@ -433,46 +573,6 @@ _not_full:
             ld      (hl),a
             inc     hl      ; next octet
             inc     ix      ; skip hidden alignment byte
-            ret
-;
-; Calculate screen coordinates from X and Y positions.
-; Made just to work.. no attempt to make it fast.
-;
-; Inputs:
-;  B = Y pos
-;  C = X pos
-;
-; Returns:
-;  HL = ptr to screen
-;
-; Trashes:
-;  A
-;
-get_address_BC:
-            ld      a,00111000b
-            and     b
-            add     a,a
-            add     a,a
-            ld      l,a
-            ld      a,11111000b
-            and     c
-            rrca
-            rrca
-            rrca
-            or      l
-            ld      l,a
-
-            ld      a,00000111b
-            and     b
-            ld      h,a
-            ld      a,11000000b
-            and     b
-            rrca
-            rrca
-            rrca
-            or      h
-            add     a,HIGH($4000)
-            ld      h,a
             ret
 
 ; Polynomial division.
@@ -1076,7 +1176,8 @@ _permanent_module:
 ; Trashes:
 ;  A
 ;
-            dw      0                       ; penalty
+	IF QR_FORCE_MASK = 0 OR QR_FORCE_MASK & 1
+			dw      0                       ; penalty
             dw      mask1_kernel            ; next kernel
             ;       D         E
             db      11101111b,10001001b     ; L = 3, mask 0
@@ -1085,7 +1186,7 @@ mask0_kernel:
             add     a,c
             and     00000001b
             ret
-
+	ENDIF
 ;
 ; Mask #1
 ; (row) mod 2 == 0
@@ -1100,6 +1201,7 @@ mask0_kernel:
 ; Trashes:
 ;  A
 ;
+	IF QR_FORCE_MASK = 0 OR QR_FORCE_MASK & 2
             dw      0                       ; penalty
             dw      mask2_kernel
             db      11100101b,11100111b
@@ -1107,6 +1209,9 @@ mask1_kernel:
             ld      a,c
             and     00000001b
             ret
+	ELSE
+mask1_kernel:
+	ENDIF
 
 ;
 ; Mask #2
@@ -1122,7 +1227,8 @@ mask1_kernel:
 ; Trashes:
 ;  A
 ;
-            dw      0                       ; penalty
+	IF QR_FORCE_MASK = 0 OR QR_FORCE_MASK & 4
+			dw      0                       ; penalty
             dw      mask3_kernel
             db      11111011b,01010101b
 mask2_kernel:
@@ -1130,7 +1236,9 @@ mask2_kernel:
             call    divmod3_A
             and     a
             ret
-
+	ELSE
+mask2_kernel:
+	ENDIF
 
 ;
 ; Mask #3
@@ -1146,7 +1254,8 @@ mask2_kernel:
 ; Trashes:
 ;  A
 ;
-            dw      0                       ; penalty
+    IF QR_FORCE_MASK = 0 OR QR_FORCE_MASK & 8
+			dw      0                       ; penalty
             dw      mask4_kernel
             db      11110001b,00111011b
 mask3_kernel:
@@ -1155,7 +1264,9 @@ mask3_kernel:
             call    divmod3_A
             and     a
             ret
-
+	ELSE
+mask3_kernel:
+	ENDIF
 
 ;
 ; Mask #4
@@ -1171,7 +1282,8 @@ mask3_kernel:
 ; Trashes:
 ;  A,A'
 ;
-            dw      0                       ; penalty
+    IF QR_FORCE_MASK = 0 OR QR_FORCE_MASK & 16
+			dw      0                       ; penalty
             dw      mask5_kernel
             db      11001100b,01011110b
 mask4_kernel:
@@ -1195,7 +1307,9 @@ mask4_kernel:
             ; (floor(row/2) + floor(col/3)) mod 2
             and     00000001b
             ret
-
+	ELSE
+mask4_kernel:
+	ENDIF
 ;
 ; Mask #5
 ; ((row * column) mod 2) + ((row * column) mod 3) == 0
@@ -1210,7 +1324,8 @@ mask4_kernel:
 ; Trashes:
 ;  A,A'
 ;
-            dw      0                       ; penalty
+    IF QR_FORCE_MASK = 0 OR QR_FORCE_MASK & 32
+			dw      0                       ; penalty
             dw      mask6_kernel
             db      11000110b,00110000b
 mask5_kernel:
@@ -1235,7 +1350,9 @@ mask5_kernel:
             ; 
             pop     bc
             ret
-
+	ELSE
+mask5_kernel:
+	ENDIF
 ;
 ; Mask #6
 ; ( ((row * column) mod 2) + ((row * column) mod 3) ) mod 2 == 0
@@ -1250,14 +1367,17 @@ mask5_kernel:
 ; Trashes:
 ;  A,A'
 ;
-            dw      0                       ; penalty
+    IF QR_FORCE_MASK = 0 OR QR_FORCE_MASK & 64
+			dw      0                       ; penalty
             dw      mask7_kernel
             db      11011000b,10000010b
 mask6_kernel:
             call    mask5_kernel
             and     00000001b
             ret
-
+	ELSE
+mask6_kernel:
+	ENDIF
 
 ;
 ; Mask #7
@@ -1273,8 +1393,9 @@ mask6_kernel:
 ; Trashes:
 ;  A,A'
 ;
-            dw      0
-            dw      mask0_kernel
+    IF QR_FORCE_MASK = 0 OR QR_FORCE_MASK & 128
+			dw      0
+            dw      0	; mask0_kernel
             db      11010010b,11101100b
 mask7_kernel:
             push    bc
@@ -1300,9 +1421,11 @@ mask7_kernel:
             ; 
             pop     bc
             ret
-
+	ELSE
+mask7_kernel:
+	ENDIF
         
-        IF  !DEFINED QR_FORCE_MASK
+    IF  QR_FORCE_MASK = 0
 
 ;
 ; Calculate penalty score 1
@@ -1858,7 +1981,7 @@ pen4_precent_tab:
             db      630>>2, 672>>2, 714>>2, 756>>2, 798>>2, 841>>2
             db      255 ; end mark
 
-        ENDIF       ; !DEFINED QR_FORCE_MASK
+        ENDIF       ; QR_FORCE_MASK = 0
 
 ;
 ; Calculate quotient and modulo 3 of A. The maximum value of A can be 192.
@@ -1874,6 +1997,7 @@ pen4_precent_tab:
 ; Trashes:
 ;  None
 ;
+	IF !(QR_FORCE_MASK & 1 OR QR_FORCE_MASK & 2)
 divmod3_A:
             push    bc
             ld      bc,$40c0     ; A cannot be larger than 192 i.e. 3<<6
@@ -1894,7 +2018,7 @@ _too_big:   srl     c
 _done:      ;
             pop     bc
             ret
-
+	ENDIF
 
 ;
 ; Multiply two 8 bit values mod 256.
@@ -1913,6 +2037,7 @@ _done:      ;
 ; the result is (B*C) mod 256.
 ;
 ;
+	IF QR_FORCE_MASK & 32 OR QR_FORCE_MASK & 128 OR QR_FORCE_MASK & 64
 mul8_B_C: 
             push    bc
             xor     a
@@ -1926,73 +2051,8 @@ _do_add:    add     a,c
 _done:      ;
             pop     bc
             ret
+	ENDIF
 
-
-; Variables and tables.. the start must be 256 octet aligned.
-;
-
-            org     ($+255) & 0xff00
-alnum_map:
-patterns:
-            ; Generator polynomial for 3-L
-gen_15:     db      8,183,61,91,202,37,51,58,58,237,140,124,5,99,105
-qr_stm:     db      0                       ;
-            ds      32-15-1                 ; space for ascii till space
-            ;db      ' ',0,0,0,'$','%',0,0,0,0,'*','+',0,'-','.','/'
-            db       36,0,0,0, 37, 38,0,0,0,0, 39, 40,0, 41, 42, 43
-            ;db      '0','1','2','3','4','5','6','7','8','9',':'
-            db        0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  44
-qr_y:       db      0
-qr_x:       db      0
-qr_dir:     db      0
-qr_final_mask:
-            dw      0
-            ds      6-5       ; skip ;<=>?@
-            ;db      'A','B','C','D','E','F','G','H','I'
-            db       10, 11, 12, 13, 14, 15, 16, 17, 18
-            ;db      'J','K','L','M','N','O','P','Q','R'
-            db       19, 20, 21, 22, 23, 24, 25, 26, 27
-            ;db      'S','T','U','V','W','X','Y','Z' 
-            db       28, 29, 30, 31, 32, 33, 34, 35
-            ; after this we have 256-90 left for this 256 bytes segment
-
-
-; Format of the RLE:
-;  00 nnnnnn -> white (00000000b), 1 < n < 63
-;  01 nnnnnn -> empty (01000000b), 1 < n < 63
-;  10 nnnnnn -> black (10000000b), 1 < n < 63
-;  11 nnnnnn -> black-white alternating, 1 < n < 63
-;  00 000000 -> end mark
-;
-qr_template:
-            db      $86,$c3,$4c,$01,$86,$c4
-            db      $04,$c3,$4c,$01,$c2,$04,$c4
-            db      $82,$c5,$4c,$01,$c2,$82,$c6
-            db      $82,$c5,$4c,$01,$c2,$82,$c6
-            db      $82,$c5,$4c,$01,$c2,$82,$c6
-            db      $04,$c3,$4c,$01,$c2,$04,$c2
-            db      $86,$d0,$88,$09,$4c,$09
-            db      $89,$4c,$89
-
-            db      $46,$01,$5d,$81
-            db      $5d,$01,$5d,$81
-            db      $5d,$01,$5d,$81
-            db      $5d,$01,$5d,$81
-            db      $5d,$01,$5d,$81
-            db      $5d,$01,$5d,$81
-
-            db      $4d,$85,$45
-
-            db      $08,$81,$4b,$81,$03,$81,$45
-            db      $86,$c3,$4b,$c4,$81,$45
-            db      $81,$05,$c3,$4b,$81,$03,$81,$45
-            db      $c2,$82,$c5,$4b,$85,$45
-            db      $c2,$82,$c5,$55
-            db      $c2,$82,$c5,$55
-            db      $81,$05,$c3,$55
-            db      $86,$c3,$55
-
-            db      $00     ; end mark
 qr_end:
 
 ;
@@ -2001,13 +2061,13 @@ qr_end:
 ; Below code can be commented out and then use defines themselves
 ; for memory pointers.
 
-PHR_BUF_PTR:                    ; encode phrase here
-            ds      PHR_BUF_SIZE    ; QR_CWDS
+PHR_BUF_PTR:						; encode phrase here
+            ds      PHR_BUF_SIZE	; QR_CWDS
 ENC_BUF_PTR:
-            ds      ENC_BUF_SIZE    ; QR_CWDS_EWDS i.e. code words + ecc words
+            ds      ENC_BUF_SIZE	; QR_CWDS_EWDS i.e. code words + ecc words
 
-QR_DST_PTR: ds      QR_DST_SIZE ; QR_DIM*4
-QR_TMP_PTR: ds      QR_TMP_SIZE ; 30*QR_DIM
+QR_DST_PTR: ds      QR_DST_SIZE		; QR_DIM*4
+QR_TMP_PTR: ds      QR_TMP_SIZE		; 30*QR_DIM
 
 
             org ($+255) & 0xff00
@@ -2016,12 +2076,6 @@ QR_TMP_PTR: ds      QR_TMP_SIZE ; 30*QR_DIM
 GF_E2G_PTR: ds      256
 GF_G2E_PTR: ds      256
 
-test_string:        ; 33 chars
-            db      "HTTP://WWW.DEADCODERSSOCIETY.NET/"
-            ; 33,11,26,166,95,159,215,220,14,222,160,18,172,69,82,52,34,34
-            ; 51,138,119,222,84,157,96,236,17,236,17,236,17,236,17,236,17
-            ; 236,17,236,17,236,17,236,17,236,17,236,17,236,17,236,17,236
-            ; 17,236,17
 
     END main
 

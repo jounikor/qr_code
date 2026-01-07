@@ -10,16 +10,16 @@
 ; Following constants need to be defined or reserved space during
 ; compilation:
 ;
-; PHR_BUF_PTR   no alignment, size PHR_BUF_SIZE octets
-; PHR_BUF_PTR   no alignment, size ENC_BUF_SIZE octets
+; PHR_BUF_PTR   overlaid on QR_DST_SIZE
+; ENC_BUF_PTR   no alignment, size ENC_BUF_SIZE octets
 ; QR_DST_PTR    no alignment, size QR_DST_SIZE <- place qr-code here
 ; QR_TMP_PTR    no alignment, size QR_TMP_SIZE
 ; GF_G2E_PTR    256 octet alignment, size 256
 ; GF_E2G_PTR    256 octet alignment, size 256
 
 QR_DIM          equ     29
-QR_CWDS_EWDS    equ     (55+15)*8
 QR_CWDS         equ     55            
+QR_CWDS_EWDS    equ     (QR_CWDS+15)*8
 QR_MAX_PHRASE   equ     76
 
 ;
@@ -52,10 +52,12 @@ main:
             push    bc
             exx
 
-
+			; Call only once..
             call    qr_code_init
 
-            ld      ix,test_string
+			; For each generated QR-code
+			call	decode_qr_template
+			ld      ix,test_string
             ld      a,TEST_STR_LEN
             call    qr_code_generate
     IF DEFINED TEST_SPECTRUM    
@@ -73,11 +75,11 @@ main:
             ret
 
 
-;TEST_STR_LEN	equ	22
+TEST_STR_LEN	equ	22
 test_string:        ; 22 chars
-            ;db      "HTTP://WWW.SCOOPEX.US/"
-TEST_STR_LEN	equ	33
-            db      "HTTP://WWW.DEADCODERSSOCIETY.NET/"
+            db      "HTTP://WWW.SCOOPEX.US/"
+;TEST_STR_LEN	equ	33
+;            db      "HTTP://WWW.DEADCODERSSOCIETY.NET/"
 
 	IF DEFINED TEST_SPECTRUM
 ;
@@ -238,9 +240,96 @@ qr_template:
 qr_code_init:
             ; gf_init and decode_qr_layout need to be called only
             ; once for any number of calculated QR-Codes.
-            call    gf_init
-            call    decode_qr_template
-            ret
+;
+; Generate Galois Field tables
+_gf_init:
+            ld      b,0 
+            ld      hl,GF_E2G_PTR
+            ld      a,1
+            jr      _not_over_256
+
+_main:      ;
+            add     a,a
+            jr nc,  _not_over_256
+            ;
+            xor     285-256
+_not_over_256:
+            ld      (hl),a
+            inc     l
+            djnz    _main
+            ;
+
+            ld      b,254
+_copy:      ;
+            ld      l,b
+            ld      a,(hl)      ; from gf_e2g[n]
+            inc     h
+            ld      l,a
+            ld      (hl),b      ; to gf_g2e[f_e2g[n]] = n
+            dec     h
+            djnz    _copy
+			ret
+
+;
+; Decode QR-Code basic template. It includes:
+;  - alignment patterns
+;  - positional patterns
+;  - dark module
+;  - reserved areas
+;  - sync patterns
+;
+; The template does not include:
+;  - mask patterns (inserted with a separate function)
+;
+; Note that the area used by the template is:
+;  - horizontal QR_DIM+1 (i.e. in 3-L case 30)
+;  - vertical   QR_DIM (i.e. in 3-L case 29)
+; When processing inside the template you MUST ignore the 
+; one column outside the QR_DIM.
+;
+; Encoding on each octet within the template:
+;  00000000b = white pixel/module
+;  10000000b = black pixel/module
+;  01000001b = empty pixel/module available for encoded pixels
+;
+decode_qr_template:
+            ld      de,qr_template
+            ld      hl,QR_TMP_PTR
+
+_loop:      ld      a,(de)
+            inc     de
+            and     a
+            ret z
+
+            ld      c,a
+            ld      b,00111111b
+            and     b
+            ld      b,a
+            xor     c
+            ld      c,0
+
+            jr z,   _white
+            jp p,   _empty
+
+            bit     6,a
+            jr z,   _black
+
+            ; black-white alternate
+            add     a,a
+            ld      c,a
+
+            ; White, black and black & white alternate 
+_white:     ; all pass through here i.e. they see CP n here..
+_black:
+            db      $fe         ; Old 'CP n' trich
+            ; Empty pixels/modules will have bit 0 set
+_empty:     inc     a
+_sta:       ld      (hl),a
+            inc     hl
+            xor     c
+            djnz    _sta
+            jr      _loop
+
 
 ;
 ; Generate QR-Code (assume only 3-L)
@@ -268,51 +357,11 @@ qr_code_generate:
 
             ; Encode codewords, ecc words and padding to qr-code bits layout
             call    encode_layout
-            ;ld      ix,QR_MASK_PTR
             call    apply_mask
 
-            ; Note the big endian byte order..
-            ;ld      d,(ix-2)
-            ;ld      e,(ix-1)
-            ;call   insert_mask
-           
             scf         ; C_flag = 1 for OK
             ret
 
-;
-; Generate Galois Field tables
-;
-; Trashes:
-;  A,B,H,L
-;
-gf_init:
-            ld      b,0 
-            ld      hl,GF_E2G_PTR
-            ld      a,1
-            jr      _not_over_256
-
-_main:      ;
-            add     a,a
-            jr nc,  _not_over_256
-            ;
-            xor     285-256
-_not_over_256:
-            ld      (hl),a
-            inc     l
-            djnz    _main
-            ;
-
-            ld      b,254
-_copy:      ;
-            ld      l,b
-            ld      a,(hl)      ; from gf_e2g[n]
-            inc     h
-            ld      l,a
-            ld      (hl),b      ; to gf_g2e[f_e2g[n]] = n
-            dec     h
-            djnz    _copy
-            ;
-            ret
 
 ;
 ; Make a pixel representation of the QR-Code (interleaved).
@@ -695,7 +744,15 @@ mul45:      push    hl
 ;
 encode_layout:
             ; init position statemachine
-            call    init_next
+_init_next:
+			xor     a
+			ld      (qr_stm),a
+			ld      (qr_dir),a
+			ld      a,QR_DIM-1
+			ld      (qr_y),a
+			ld      (qr_x),a
+			ld      hl,QR_TMP_PTR+(QR_DIM+1)*(QR_DIM-1)+(QR_DIM-1)
+            ;call    init_next
 
             ; HL = ptr to the last pixel/module in the QR-Code template
             ; DE = ptr to code + ecc words
@@ -736,28 +793,6 @@ _pad:       ld      (hl),QR_WHITE_T
             call    pos_next
             djnz    _pad
 
-            ret
-
-;
-; Initialize QR-Code matrix zig-zag traveling state machine.
-;
-; Inputs:
-;  None
-;
-; Returns:
-;  HL = ptr to last octet in the template QR-Code array
-;
-; Trashes:
-;  A
-;
-init_next:
-            xor     a
-            ld      (qr_stm),a
-            ld      (qr_dir),a
-            ld      a,QR_DIM-1
-            ld      (qr_y),a
-            ld      (qr_x),a
-            ld      hl,QR_TMP_PTR+(QR_DIM+1)*(QR_DIM-1)+(QR_DIM-1)
             ret
 
 ;
@@ -858,66 +893,6 @@ _done:      ld      (qr_x),a
             ret
 
 
-;
-; Decode QR-Code basic template. It includes:
-;  - alignment patterns
-;  - positional patterns
-;  - dark module
-;  - reserved areas
-;  - sync patterns
-;
-; The template does not include:
-;  - mask patterns (inserted with a separate function)
-;
-; Note that the area used by the template is:
-;  - horizontal QR_DIM+1 (i.e. in 3-L case 30)
-;  - vertical   QR_DIM (i.e. in 3-L case 29)
-; When processing inside the template you MUST ignore the 
-; one column outside the QR_DIM.
-;
-; Encoding on each octet within the template:
-;  00000000b = white pixel/module
-;  10000000b = black pixel/module
-;  01000001b = empty pixel/module available for encoded pixels
-;
-decode_qr_template:
-            ld      de,qr_template
-            ld      hl,QR_TMP_PTR
-
-_loop:      ld      a,(de)
-            inc     de
-            and     a
-            ret z
-
-            ld      c,a
-            ld      b,00111111b
-            and     b
-            ld      b,a
-            xor     c
-            ld      c,0
-
-            jr z,   _white
-            jp p,   _empty
-
-            bit     6,a
-            jr z,   _black
-
-            ; black-white alternate
-            add     a,a
-            ld      c,a
-
-            ; White, black and black & white alternate 
-_white:     ; all pass through here i.e. they see CP n here..
-_black:
-            db      $fe         ; Old 'CP n' trich
-            ; Empty pixels/modules will have bit 0 set
-_empty:     inc     a
-_sta:       ld      (hl),a
-            inc     hl
-            xor     c
-            djnz    _sta
-            jr      _loop
-
 
 ;
 ; Generic mask applying function. This routine calls
@@ -941,15 +916,11 @@ apply_mask:
             ld      hl,QR_TMP_END_PTR
             ld      c,QR_DIM-1
 _main:
-
-            ld      b,QR_DIM-1
+			ld		b,QR_DIM
 _loop:      
-            ;ld      de,_ret
-            ;push    de
-            ;jp      (ix)
-
 _mask0_kernel:
             ld      a,b
+			dec		a
             add     a,c
             and     00000001b
 
@@ -963,9 +934,8 @@ _ret:       jr nz,  _do_not_flip
 _do_not_flip:
 _permanent_module:
             dec     hl
-            dec     b
-            jp p,   _loop
-            dec     hl
+			djnz	_loop
+			dec     hl
 
             dec     c
             jp p,   _main
@@ -980,13 +950,12 @@ qr_end:
 ; Below code can be commented out and then use defines themselves
 ; for memory pointers.
 
-PHR_BUF_PTR:						; encode phrase here
-            ds      PHR_BUF_SIZE	; QR_CWDS
 ENC_BUF_PTR:
             ds      ENC_BUF_SIZE	; QR_CWDS_EWDS i.e. code words + ecc words
 
-QR_DST_PTR: ds      QR_DST_SIZE		; QR_DIM*4
-QR_TMP_PTR: ds      QR_TMP_SIZE		; 30*QR_DIM
+PHR_BUF_PTR:
+QR_DST_PTR: ds      QR_DST_SIZE		; PHR_BUF_SIZE < QR_DST_SIZE
+QR_TMP_PTR: ds      QR_TMP_SIZE		;
 
 
             org ($+255) & 0xff00

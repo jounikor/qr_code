@@ -19,7 +19,8 @@
 
 QR_DIM          equ     29
 QR_CWDS         equ     55            
-QR_CWDS_EWDS    equ     (QR_CWDS+15)*8
+;QR_CWDS_EWDS    equ     (QR_CWDS+15)*8
+QR_CWDS_EWDS    equ     QR_CWDS+15
 QR_MAX_PHRASE   equ     76
 
 ;
@@ -57,12 +58,21 @@ main:
 
 			; For each generated QR-code
 			call	decode_qr_template
-			ld      ix,test_string
-            ld      a,TEST_STR_LEN
+			ld      ix,test_string1
+            ld      a,TEST_STR_LEN1
             call    qr_code_generate
     IF DEFINED TEST_SPECTRUM    
             ld      b,64
             ld      c,112
+            call    qr_code_render_spectrum
+	ENDIF
+			call	decode_qr_template
+			ld      ix,test_string2
+            ld      a,TEST_STR_LEN2
+            call    qr_code_generate
+    IF DEFINED TEST_SPECTRUM    
+            ld      b,64
+            ld      c,176
             call    qr_code_render_spectrum
 	ENDIF
             exx
@@ -75,12 +85,15 @@ main:
             ret
 
 
-TEST_STR_LEN	equ	22
-test_string:        ; 22 chars
+TEST_STR_LEN1	equ	22
+test_string1:
             db      "HTTP://WWW.SCOOPEX.US/"
 ;TEST_STR_LEN	equ	33
 ;            db      "HTTP://WWW.DEADCODERSSOCIETY.NET/"
 
+TEST_STR_LEN2	equ	67
+test_string2:
+			db	"HTTPS://WWW.LIPPU.FI/EVENT/JINJER-HELSINGIN-KULTTUURITALO-20307254/"
 	IF DEFINED TEST_SPECTRUM
 ;
 ; Render QR-Code (on ZX Spectrum..)
@@ -97,8 +110,6 @@ test_string:        ; 22 chars
 ;
 qr_code_render_spectrum:
             ld      ix,QR_TMP_PTR
-            ld      b,64
-            ld      c,112
             exx
             ld      b,QR_DIM
 _line_loop: ;
@@ -339,7 +350,7 @@ _sta:       ld      (hl),a
 ;  A = length of the phrase.
 ;
 ; Returns:
-;  C_flag = 0 if phrase is too long
+;  none. (was C_flag = 0 if phrase is too long)
 ;
 ; Trashes:
 ;  IY is not trashed.
@@ -348,7 +359,7 @@ qr_code_generate:
             ;
             ; Make sure text phrase is not longer than 76 characters.
             call    encode_phrase
-            ret nc
+            ;ret nc
 
             call    polydiv
 
@@ -357,10 +368,11 @@ qr_code_generate:
 
             ; Encode codewords, ecc words and padding to qr-code bits layout
             call    encode_layout
-            call    apply_mask
+            ;call    apply_mask
+			jp		apply_mask
 
-            scf         ; C_flag = 1 for OK
-            ret
+            ;scf         ; C_flag = 1 for OK
+            ;ret
 
 
 ;
@@ -546,14 +558,14 @@ _div_loop:  ;
 ;  A  = string length
 ;
 ; Returns:
-;  C_flag = 0 if error, C_flag = 1 if OK.
+;  none. (was C_flag = 0 if error, C_flag = 1 if OK.)
 ;
 ; Trashes:
 ;  A,BC,DE,HL,IX
 ;
 encode_phrase:
-            cp      QR_MAX_PHRASE+1
-            ret nc
+            ;cp      QR_MAX_PHRASE+1
+            ;ret nc
 
             ld      de,PHR_BUF_PTR
             push    de
@@ -599,17 +611,33 @@ _main:      ;
             dec     c
 
             push    de
-            ld      h,HIGH(alnum_map)
+			ld		d,h
+
+			ld      h,HIGH(alnum_map)
             ld      l,(ix+0)
             ld      e,(hl)
             inc     ix
-            call    mul45
+			
+			; mul45
+			push	hl
+			ld		b,8-2
+			ld		h,45<<2
+			ld		l,d
+_mul45loop:
+			add		hl,hl
+			jr nc,	_no_mul_add
+			add		hl,de
+_no_mul_add:
+			djnz	_mul45loop
+			ex		de,hl
+			pop		hl
+			;
 
             ld      l,(ix+0)
             ld      l,(hl)
             inc     ix
-            ld      h,0
-            add     hl,de
+            ld      h,b
+			add     hl,de
             pop     de
 
             ld      b,3
@@ -688,43 +716,7 @@ _pad:       ld      (de),a
             djnz    _pad
 
 _no_alignment:
-            scf         ; C_flag = 1
-            ret
-
-;
-; Multiply by 45.
-; 
-; Inputs:
-;  E = value (0 <= C < 45) to multiply
-;
-; Returns:
-;  DE = result
-;
-; Trashes:
-;  DE
-;
-mul45:      push    hl
-            ld      h,0
-            ld      l,e
-
-            push    hl      ; 1x to stack
-            ; 32x
-            add     hl,hl
-            add     hl,hl
-            push    hl      ; 4x to stack
-            add     hl,hl
-            push    hl      ; 8x to stack
-            add     hl,hl
-            add     hl,hl
-            pop     de
-            add     hl,de
-            pop     de
-            add     hl,de
-            pop     de
-            add     hl,de
-            ex      de,hl
-
-            pop     hl
+            ;scf         ; C_flag = 1
             ret
 
 ;
@@ -815,10 +807,10 @@ pos_next:
 
             ld      a,(qr_dir)
             and     a
+            ld      a,(qr_stm)
             jr nz,  _dir_down
 
 _dir_up:    ;
-            ld      a,(qr_stm)
             add     a,10000000b
             ld      (qr_stm),a
             jr c,   _up
@@ -843,7 +835,6 @@ _up:        ld      a,(qr_y)
             jr      _next
 
 _dir_down:  ;
-            ld      a,(qr_stm)
             add     a,10000000b
             ld      (qr_stm),a
             jr c,   _down

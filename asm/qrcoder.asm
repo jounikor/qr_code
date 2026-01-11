@@ -689,45 +689,41 @@ _while:     ; If bit is 0 in the empty bit bitmask -> skip
 ;  None.
 ;
 ; Trashes:
-;  A,BC,HL
+;  A,BC,HL,D
 ;
 apply_mask:
             ld      hl,QR_DST_PTR+QR_DST_SIZE-1
             ld		ix,qr_template_empty_bits+QR_DST_SIZE-1
-			ld      c,QR_DIM-1
+			ld      c,QR_DIM
 _main:
 			ld		b,QR_DIM
 			ld		a,00000100b		; pixel position for the last pixel
-			ld		(qr_m),a
 _loop:      
 _mask0_kernel:
-            ld      a,b
-			dec		a
+            ld		d,a
+			ld      a,b
             add     a,c
             and     00000001b
-			push	bc
-			ld		a,(qr_m)
-			ld		b,a
+			ld		a,d
 			jr nz,  _do_not_flip 
 			and		(ix)
             jr z,	_permanent_module
 			xor		(hl)
             ld      (hl),a
 _permanent_module:
-			ld		a,b
+			ld		a,d
 _do_not_flip:
 			rlca
 			jr nc,	_same_byte
 			dec		hl
 			dec		ix
 _same_byte:
-			ld		(qr_m),a
-			pop		bc
+			
 			djnz	_loop
 			dec		hl		; this is because that 1 pixel QR-code shift
 			dec		ix
             dec     c
-            jp p,   _main
+            jr nz,	_main
 
             ret
 

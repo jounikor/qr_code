@@ -324,105 +324,11 @@ _copy:      ;
 ;
 qr_code_generate:
             ; Make sure text phrase is not longer than 76 characters.
-            call    encode_phrase
-            call    polydiv
+            ;call    encode_phrase
+            ;call    polydiv
 
             ; Encode codewords, ecc words and padding to qr-code bits layout
-            jp		encode_layout
-
-; Polynomial division.
-;
-; Inputs:
-;  none
-;
-; Returns:
-;  DE = start of ecc words
-;
-; Trashes:
-;  A,B,C,H,L
-;
-; Note:
-;  This routine does not handle the case where polynomial
-;  is shorter than generator.
-;  Everything is based on 3-L assumptions.
-
-polydiv:    ;
-
-            ld      hl,PHR_BUF_PTR
-            ld      de,ENC_BUF_PTR
-            ;
-            ; Move polynomial into to ecc_buffer for division 
-            push    hl          ; polynomial
-            push    de          ; code words
-            push    de          ; ecc words
-            ld      bc,55
-            ldir
-
-            ; Clear the rest of the ecc_buffer
-            xor     a
-            ld      b,15
-_clear:     ld      (de),a
-            inc     de
-            djnz    _clear
-
-            ; polynomial division main loop..
-            ld      c,55            ; "polylen"
-            pop     hl
-            ;
-            ; HL = phrase i.e., polynomial
-            ; DE = generator
-
-_div_main:  ;
-            ; get 'ex' into A
-            ld      a,(hl)
-            inc     hl
-            ld      d,HIGH(GF_G2E_PTR)
-            ld      e,a
-            ld      a,(de)
-
-            ld      b,15
-            ld      de,gen_15
-            push    hl
-
-_div_loop:  ;
-            push    af
-            
-            ; A = ex + gen[m] if ex + gen[m] < 256 else ex + gen[m] - 255
-            ex      de,hl
-            add     a,(hl)
-            adc     a,0
-            inc     hl
-            ex      de,hl
-
-            ; A = e2g[A]
-            push    de
-            ld      d,HIGH(GF_E2G_PTR)
-            ld      e,a
-            ld      a,(de)
-            pop     de
-            
-            ; p[n+m] ^ A
-            xor     (hl)
-            ld      (hl),a
-            inc     hl
-            pop     af
-            ;
-            djnz    _div_loop
-
-            ;
-            ;
-            pop     hl          ; ecc words
-            dec     c
-            jr nz,  _div_main
-
-            ; move poly at the front of ECC
-            pop     de          ; code words
-            pop     hl          ; polynomial
-            ld      c,55
-            ldir
-
-            ret
-
+            ;jp		encode_layout
 
 ;
 ; Encodes the input phrase. This function has a lot of assumption:
@@ -600,7 +506,100 @@ _pad:       ld      (de),a
 
 _no_alignment:
             ;scf         ; C_flag = 1
-            ret
+            ;ret			; flow to next routine
+
+; Polynomial division.
+;
+; Inputs:
+;  none
+;
+; Returns:
+;  DE = start of ecc words
+;
+; Trashes:
+;  A,B,C,H,L
+;
+; Note:
+;  This routine does not handle the case where polynomial
+;  is shorter than generator.
+;  Everything is based on 3-L assumptions.
+
+polydiv:    ;
+
+            ld      hl,PHR_BUF_PTR
+            ld      de,ENC_BUF_PTR
+            ;
+            ; Move polynomial into to ecc_buffer for division 
+            push    hl          ; polynomial
+            push    de          ; code words
+            push    de          ; ecc words
+            ld      bc,55
+            ldir
+
+            ; Clear the rest of the ecc_buffer
+            xor     a
+            ld      b,15
+_clear:     ld      (de),a
+            inc     de
+            djnz    _clear
+
+            ; polynomial division main loop..
+            ld      c,55            ; "polylen"
+            pop     hl
+            ;
+            ; HL = phrase i.e., polynomial
+            ; DE = generator
+
+_div_main:  ;
+            ; get 'ex' into A
+            ld      a,(hl)
+            inc     hl
+            ld      d,HIGH(GF_G2E_PTR)
+            ld      e,a
+            ld      a,(de)
+
+            ld      b,15
+            ld      de,gen_15
+            push    hl
+
+_div_loop:  ;
+            push    af
+            
+            ; A = ex + gen[m] if ex + gen[m] < 256 else ex + gen[m] - 255
+            ex      de,hl
+            add     a,(hl)
+            adc     a,0
+            inc     hl
+            ex      de,hl
+
+            ; A = e2g[A]
+            push    de
+            ld      d,HIGH(GF_E2G_PTR)
+            ld      e,a
+            ld      a,(de)
+            pop     de
+            
+            ; p[n+m] ^ A
+            xor     (hl)
+            ld      (hl),a
+            inc     hl
+            pop     af
+            ;
+            djnz    _div_loop
+
+            ;
+            ;
+            pop     hl          ; ecc words
+            dec     c
+            jr nz,  _div_main
+
+            ; move poly at the front of ECC
+            pop     de          ; code words
+            pop     hl          ; polynomial
+            ld      c,55
+            ldir
+
+            ;ret				; flow to next routine
 
 ;
 ; Encode the QR-Code layout into the templete.

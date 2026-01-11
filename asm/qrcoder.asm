@@ -13,29 +13,23 @@
 ; PHR_BUF_PTR   overlaid on QR_DST_SIZE
 ; ENC_BUF_PTR   no alignment, size ENC_BUF_SIZE octets
 ; QR_DST_PTR    no alignment, size QR_DST_SIZE <- place qr-code here
-; QR_TMP_PTR    no alignment, size QR_TMP_SIZE
 ; GF_G2E_PTR    256 octet alignment, size 256
 ; GF_E2G_PTR    256 octet alignment, size 256
 
 QR_DIM          equ     29
 QR_CWDS         equ     55            
-;QR_CWDS_EWDS    equ     (QR_CWDS+15)*8
 QR_CWDS_EWDS    equ     QR_CWDS+15
 QR_MAX_PHRASE   equ     76
+QR_SHIFT		equ		1		; output QR-code is shifted right
 
 ;
 PHR_BUF_SIZE    equ     QR_CWDS
 ENC_BUF_SIZE    equ     QR_CWDS_EWDS
 QR_DST_SIZE     equ     QR_DIM*4
-QR_TMP_SIZE     equ     (QR_DIM+1)*QR_DIM
-QR_TMP_END_PTR  equ     QR_TMP_PTR+QR_DIM*(QR_DIM+1)-2
 
-; 
-QR_WHITE        equ     00000000b   ; bit 0 == 0 -> permanent pixel/module
-QR_BLACK        equ     10000000b
-QR_WHITE_T      equ     00000001b   ; bit 0 == 1 -> can be overwritten
-QR_BLACK_T      equ     10000001b
-QR_EMPTY        equ     01000001b
+
+
+; Test driving program starts here..
 
             org $8000
 
@@ -57,7 +51,6 @@ main:
             call    qr_code_init
 
 			; For each generated QR-code
-			call	decode_qr_template
 			ld      ix,test_string1
             ld      a,TEST_STR_LEN1
             call    qr_code_generate
@@ -66,7 +59,6 @@ main:
             ld      c,112
             call    qr_code_render_spectrum
 	ENDIF
-			call	decode_qr_template
 			ld      ix,test_string2
             ld      a,TEST_STR_LEN2
             call    qr_code_generate
@@ -85,11 +77,11 @@ main:
             ret
 
 
-TEST_STR_LEN1	equ	22
+;TEST_STR_LEN1	equ	22
 test_string1:
-            db      "HTTP://WWW.SCOOPEX.US/"
-;TEST_STR_LEN	equ	33
-;            db      "HTTP://WWW.DEADCODERSSOCIETY.NET/"
+;            db      "HTTP://WWW.SCOOPEX.US/"
+TEST_STR_LEN1	equ	33
+            db      "HTTP://WWW.DEADCODERSSOCIETY.NET/"
 
 TEST_STR_LEN2	equ	67
 test_string2:
@@ -109,14 +101,21 @@ test_string2:
 ;  A,BC,DE,HL,IX,B'
 ;
 qr_code_render_spectrum:
-            ld      ix,QR_TMP_PTR
+            ld      ix,QR_DST_PTR
             exx
             ld      b,QR_DIM
 _line_loop: ;
             exx
             call    get_address_BC
-            call    print_1_line
-            inc     b
+            
+			REPT	4
+			ld		a,(ix)
+			ld		(hl),a
+			inc		ix
+			inc		hl
+			ENDM
+			
+			inc     b
             exx
             djnz    _line_loop
             exx
@@ -177,7 +176,8 @@ patterns:
             ; Generator polynomial for 3-L
 gen_15:     db      8,183,61,91,202,37,51,58,58,237,140,124,5,99,105
 qr_stm:     db      0                       ;
-            ds      32-15-1                 ; space for ascii till space
+qr_y_adder:	dw		0
+			ds      32-15-3                 ; space for ascii till space
             ;db      ' ',0,0,0,'$','%',0,0,0,0,'*','+',0,'-','.','/'
             db       36,0,0,0, 37, 38,0,0,0,0, 39, 40,0, 41, 42, 43
             ;db      '0','1','2','3','4','5','6','7','8','9',':'
@@ -185,9 +185,9 @@ qr_stm:     db      0                       ;
 qr_y:       db      0
 qr_x:       db      0
 qr_dir:     db      0
+qr_m:		db		0
 qr_final_mask:
             dw      0
-            ds      6-5       ; skip ;<=>?@
             ;db      'A','B','C','D','E','F','G','H','I'
             db       10, 11, 12, 13, 14, 15, 16, 17, 18
             ;db      'J','K','L','M','N','O','P','Q','R'
@@ -196,45 +196,72 @@ qr_final_mask:
             db       28, 29, 30, 31, 32, 33, 34, 35
             ; after this we have 256-90 left for this 256 bytes segment
 
+qr_template_empty_bits:
+			;		 +                                 +
+			db		00000000b,00111111b,11111100b,00000000b
+			db		00000000b,00111111b,11111100b,00000000b
+			db		00000000b,00111111b,11111100b,00000000b
+			db		00000000b,00111111b,11111100b,00000000b
+			db		00000000b,00111111b,11111100b,00000000b
+			db		00000000b,00111111b,11111100b,00000000b
+			db		00000000b,00000000b,00000000b,00000000b
+			db		00000000b,00111111b,11111100b,00000000b
+			db		00000000b,00111111b,11111100b,00000000b
+			db		01111110b,11111111b,11111111b,11111100b
+			db		01111110b,11111111b,11111111b,11111100b
+			db		01111110b,11111111b,11111111b,11111100b
+			db		01111110b,11111111b,11111111b,11111100b
+			db		01111110b,11111111b,11111111b,11111100b
+			db		01111110b,11111111b,11111111b,11111100b
+			db		01111110b,11111111b,11111111b,11111100b
+			db		01111110b,11111111b,11111111b,11111100b
+			db		01111110b,11111111b,11111111b,11111100b
+			db		01111110b,11111111b,11111111b,11111100b
+			db		01111110b,11111111b,11111111b,11111100b
+			db		01111110b,11111111b,11111000b,00111100b
+			db		00000000b,00111111b,11111000b,00111100b
+			db		00000000b,00111111b,11111000b,00111100b
+			db		00000000b,00111111b,11111000b,00111100b
+			db		00000000b,00111111b,11111000b,00111100b
+			db		00000000b,00111111b,11111111b,11111100b
+			db		00000000b,00111111b,11111111b,11111100b
+			db		00000000b,00111111b,11111111b,11111100b
+			db		00000000b,00111111b,11111111b,11111100b
+			;		      starting pos for encoding    ^  
+qr_template_static_bits:
+			;		 +                                 +
+			db		01111111b,00000000b,00000001b,11111100b
+			db		01000001b,00000000b,00000001b,00000100b
+			db		01011101b,01000000b,00000001b,01110100b
+			db		01011101b,00000000b,00000001b,01110100b
+			db		01011101b,00000000b,00000001b,01110100b
+			db		01000001b,00000000b,00000001b,00000100b
+			db		01111111b,01010101b,01010101b,11111100b
+			db		00000000b,01000000b,00000000b,00000000b
+			;db		01010110b,11000000b,00000011b,00010000b
+			db		01110111b,11000000b,00000011b,00010000b
+			db		00000000b,00000000b,00000000b,00000000b
+			db		00000001b,00000000b,00000000b,00000000b
+			db		00000000b,00000000b,00000000b,00000000b
+			db		00000001b,00000000b,00000000b,00000000b
+			db		00000000b,00000000b,00000000b,00000000b
+			db		00000001b,00000000b,00000000b,00000000b
+			db		00000000b,00000000b,00000000b,00000000b
+			db		00000001b,00000000b,00000000b,00000000b
+			db		00000000b,00000000b,00000000b,00000000b
+			db		00000001b,00000000b,00000000b,00000000b
+			db		00000000b,00000000b,00000000b,00000000b
+			db		00000001b,00000000b,00000111b,11000000b
+			db		00000000b,01000000b,00000100b,01000000b
+			db		01111111b,01000000b,00000101b,01000000b
+			db		01000001b,01000000b,00000100b,01000000b
+			db		01011101b,01000000b,00000111b,11000000b
+			db		01011101b,00000000b,00000000b,00000000b
+			db		01011101b,01000000b,00000000b,00000000b
+			db		01000001b,01000000b,00000000b,00000000b
+			db		01111111b,01000000b,00000000b,00000000b
+qr_mid:
 
-; Format of the RLE:
-;  00 nnnnnn -> white (00000000b), 1 < n < 63
-;  01 nnnnnn -> empty (01000000b), 1 < n < 63
-;  10 nnnnnn -> black (10000000b), 1 < n < 63
-;  11 nnnnnn -> black-white alternating, 1 < n < 63
-;  00 000000 -> end mark
-;
-qr_template:
-            db      $87,$02,$4c,$01,$86,$c4			; O
-            db      $04,$c2,$01,$4c,$01,$c2,$04,$c4	; O
-            db      $82,$c5,$4c,$01,$c2,$82,$c6		; X
-            db      $82,$c4,$01,$4c,$01,$c2,$82,$c6	; O
-            db      $82,$c4,$01,$4c,$01,$c2,$82,$c6	; O
-            db      $04,$c2,$01,$4c,$01,$c2,$04,$c2	; O
-            db      $86,$d0,$88						;
-			db		$08,$81,$4c,$09					; X
-            db      $82,$c3,$c3,$81,$4c,$82,$03,$c2,$02	; XXXOXX XX............XXOOOXOO
-
-            db      $46,$01,$5d,$81
-            db      $5d,$01,$5d,$81
-            db      $5d,$01,$5d,$81
-            db      $5d,$01,$5d,$81
-            db      $5d,$01,$5d,$81
-            db      $5d,$01,$5d,$81
-
-            db      $4d,$85,$45
-
-            db      $08,$81,$4b,$81,$03,$81,$45
-            db      $86,$c3,$4b,$c5,$45			; X
-            db      $81,$05,$c3,$4b,$81,$03,$81,$45	; X
-            db      $c2,$82,$c5,$4b,$85,$45			; X
-            db      $c2,$82,$c4,$01,$55				; O
-            db      $c2,$82,$c5,$55					; X
-            db      $81,$05,$c3,$55					; X
-            db      $86,$c3,$55						; X
-
-            db      $00     ; end mark
-            
 ;----------------------------------------------------------------------------
 ;
 ; Initialize QR-Code generation.
@@ -281,66 +308,6 @@ _copy:      ;
             djnz    _copy
 			ret
 
-;
-; Decode QR-Code basic template. It includes:
-;  - alignment patterns
-;  - positional patterns
-;  - dark module
-;  - reserved areas
-;  - sync patterns
-;
-; The template does not include:
-;  - mask patterns (inserted with a separate function)
-;
-; Note that the area used by the template is:
-;  - horizontal QR_DIM+1 (i.e. in 3-L case 30)
-;  - vertical   QR_DIM (i.e. in 3-L case 29)
-; When processing inside the template you MUST ignore the 
-; one column outside the QR_DIM.
-;
-; Encoding on each octet within the template:
-;  00000000b = white pixel/module
-;  10000000b = black pixel/module
-;  01000001b = empty pixel/module available for encoded pixels
-;
-decode_qr_template:
-            ld      de,qr_template
-            ld      hl,QR_TMP_PTR
-
-_loop:      ld      a,(de)
-            inc     de
-            and     a
-            ret z
-
-            ld      c,a
-            ld      b,00111111b
-            and     b
-            ld      b,a
-            xor     c
-            ld      c,0
-
-            jr z,   _white
-            jp p,   _empty
-
-            bit     6,a
-            jr z,   _black
-
-            ; black-white alternate
-            add     a,a
-            ld      c,a
-
-            ; White, black and black & white alternate 
-_white:     ; all pass through here i.e. they see CP n here..
-_black:
-            db      $fe         ; Old 'CP n' trich
-            ; Empty pixels/modules will have bit 0 set
-_empty:     inc     a
-_sta:       ld      (hl),a
-            inc     hl
-            xor     c
-            djnz    _sta
-            jr      _loop
-
 
 ;
 ; Generate QR-Code (assume only 3-L)
@@ -356,92 +323,15 @@ _sta:       ld      (hl),a
 ;  IY is not trashed.
 ;
 qr_code_generate:
-            ;
             ; Make sure text phrase is not longer than 76 characters.
             call    encode_phrase
-            ;ret nc
-
             call    polydiv
-
-            ; There is no need to intealeave 3-L QR-Code
-            ;call    interleave
 
             ; Encode codewords, ecc words and padding to qr-code bits layout
             call    encode_layout
-            ;call    apply_mask
-			jp		apply_mask
+			call	apply_mask
+			ret
 
-            ;scf         ; C_flag = 1 for OK
-            ;ret
-
-
-;
-; Make a pixel representation of the QR-Code (interleaved).
-;
-; Inputs:
-;  HL = ptr to 4*QR_DIM octets buffer.
-;
-; Returns:
-;  None.
-;
-; Trashes:
-;  A,BC,DE,IX
-;
-qr_code_render_mem:
-            ld      ix,QR_TMP_PTR
-            ld      b,QR_DIM
-_line_loop:
-            call    print_1_line
-            djnz    _line_loop
-            ret
-            
-
-;
-; Bitwise QR-Code rendering into the RAM.
-; If QR_ADD_BORDER is defined the QR-Code is pushed 1 pixel right so
-; that it has 1 pixel border or the left and 2 pixel border on the right.
-;
-; Inputs:
-;  IX = ptr to tmp qr-code
-;  HL = ptr to dst memory
-;
-; Returns:
-;  IX = ptr to next row in the tmp qr-code.
-;  HL = ptr to next mem area on the 'row'.
-;
-; Trashes:
-;  A,DE
-;
-print_1_line:
-            ld      e,QR_DIM
-        IF DEFINED QR_ADD_BORDER
-            ld      a,2
-        ELSE
-            ld      a,1
-        ENDIF
-_bit_loop:
-            ld      d,(ix+0)
-            inc     ix
-            sla     d
-            adc     a,a
-            jr nc,  _not_full
-            ld      (hl),a
-            inc     hl
-            ld      a,1
-_not_full:
-            dec     e
-            jr nz,  _bit_loop
-
-            ; last byte is 2 or 3 bits short..
-        IF !DEFINED QR_ADD_BORDER
-            add     a,a
-        ENDIF
-            add     a,a
-            add     a,a
-            ld      (hl),a
-            inc     hl      ; next octet
-            inc     ix      ; skip hidden alignment byte
-            ret
 
 ; Polynomial division.
 ;
@@ -564,9 +454,6 @@ _div_loop:  ;
 ;  A,BC,DE,HL,IX
 ;
 encode_phrase:
-            ;cp      QR_MAX_PHRASE+1
-            ;ret nc
-
             ld      de,PHR_BUF_PTR
             push    de
             ;
@@ -724,8 +611,7 @@ _no_alignment:
 ; The function also add the remaining 7 padding bits.
 ;
 ; Inputs:
-;  HL = ptr to (interleaved) code words and ecc words
-;  DE = ptr to temporary QR-Code last byte
+;  none
 ;
 ; Returns:
 ;  None
@@ -735,22 +621,27 @@ _no_alignment:
 ;
 ;
 encode_layout:
-            ; init position statemachine
-_init_next:
-			xor     a
-			ld      (qr_stm),a
-			ld      (qr_dir),a
+            ld      hl,qr_template_static_bits
+            ld      de,QR_DST_PTR
+			ld		bc,QR_DST_SIZE
+			ldir
+			; init position statemachine
+			ld		hl,-4
+			ld		(qr_y_adder),hl
 			ld      a,QR_DIM-1
 			ld      (qr_y),a
+			inc		a				; QR-code is shifted left by 1 pixel
 			ld      (qr_x),a
-			ld      hl,QR_TMP_PTR+(QR_DIM+1)*(QR_DIM-1)+(QR_DIM-1)
-            ;call    init_next
-
-            ; HL = ptr to the last pixel/module in the QR-Code template
-            ; DE = ptr to code + ecc words
+			ld		a,00000100b		; pixel position for the last pixel
+			ld		(qr_m),a
+			xor		a
+			ld		(qr_stm),a
+			;
+			ld      hl,QR_DST_PTR+QR_DST_SIZE-1
+			ld		ix,qr_template_empty_bits+QR_DST_SIZE-1
             ld      de,ENC_BUF_PTR
-            ld      c,7
 
+            ld      c,7
             ld      a,10000000b
 _main:      ld      b,80            ; 7*80 = 560 = (8*(55+15))
 _loop:      add     a,a     
@@ -760,30 +651,31 @@ _loop:      add     a,a
             adc     a,a     ; add stop bit and move bit 7 into C_flag
 
 _skip1:     ; if C_flag = 0 then a white pixel, if 1 then a black pixel
-            push    bc
-            jr c,   _black
-            ld      c,QR_WHITE_T
-            jr      _skip2
-_black:     ld      c,QR_BLACK_T
+			push    bc
+			push	af
+
+            jr nc,	_black
+            ld		c,$ff
+            jr		_skip2
+_black:     ld		c,0
 _skip2:     ;
             ; Check if need to skip this module/pixel..
-_while:     ; If bit 0 is set this is a non-permanent pixel/module -> skip
-            bit     0,(hl)
-            call z,   pos_next
-            jr z,   _while
-            ld      (hl),c
-            call nz, pos_next
+			ld		a,(qr_m)
+_while:     ; If bit is 0 in the empty bit bitmask -> skip
+            and		(ix)
+            call z,	pos_next
+            jr z,	_while
             
+			and		c
+			or		(hl)
+			ld      (hl),a
+			call	pos_next
+
+			pop		af
             pop     bc
             djnz    _loop
             dec     c
             jr nz,  _main
-
-            ; add 7 pixels/modules of padding..
-            ld      b,7
-_pad:       ld      (hl),QR_WHITE_T
-            call    pos_next
-            djnz    _pad
 
             ret
 
@@ -793,97 +685,96 @@ _pad:       ld      (hl),QR_WHITE_T
 ; skip it.
 ;
 ; Inputs:
-;  HL = ptr to temporary (octet aligned) qr buffer
+;  HL = ptr to empty bit bitmask
+;  IX = ptr to QR-code dst bitmap
+;   C = $00 for transparent pixel, $ff for black pixel
 ;
 ; Returns:
-;  HL = ptr to new position in temporary qr buffer
+;  HL = updated HL
+;  IX = updated IX
 ;
 ; Trashes:
-;  None, also keeps flags as when called.
+;  None
+;
+;  qr_dir:
+;   00000000b = up
+;   11111111b = down
+;
+;  qr_stm:
+;   00000000b = next right to left move
+;   10000000b = next left to right + next line move
 ;
 pos_next:
-            push    af
             push    de
+			push	bc
+            push    af
+			ld		de,(qr_y_adder)
+			ld		a,(qr_stm)
+			add		a,10000000b
+			ld		(qr_stm),a
+			jr nc,	_l_shift
+			; 
+_r_shift_add_y:
+			cp		d
+			ld		a,(qr_y)
+			; C_flag = 0 if D == 0,   increase A
+			; C_flag = 1 if D == $ff, decrease A
+			; Complement C_flag so that
+			;  A = A + $00 + 1
+			; or
+			;  A = A + $ff + 0
+			ccf
+			adc		a,d
+			;
+			cp		QR_DIM
+			jr c,	_within_bounds
+			ld		a,d
+			cpl
+			ld		d,a
+			ld		a,e
+			neg
+			ld		e,a
+			ld		(qr_y_adder),de
+			jr		_l_shift
+_within_bounds:
+			ld		(qr_y),a
+			add		hl,de
+			add		ix,de
 
-            ld      a,(qr_dir)
-            and     a
-            ld      a,(qr_stm)
-            jr nz,  _dir_down
+			ld		a,(qr_m)
+			rrca
+			jr nc,	_r_check_column6
+			inc		hl
+			inc		ix
+_r_same_byte:
+			jr		_r_check_column6
 
-_dir_up:    ;
-            add     a,10000000b
-            ld      (qr_stm),a
-            jr c,   _up
-
-            ; move left
-            ld      a,(qr_x)
-            dec     a
-
-            dec     hl
-            jr      _next
-
-_up:        ld      a,(qr_y)
-            sub     1
-            jr c,   _change_dir
-
-            ld      (qr_y),a
-            ld      a,(qr_x)
-            inc     a
-
-            ld      de,QR_DIM       ; move x one right at the same time
-            sbc     hl,de
-            jr      _next
-
-_dir_down:  ;
-            add     a,10000000b
-            ld      (qr_stm),a
-            jr c,   _down
-
-            ; move left
-            ld      a,(qr_x)
-            dec     a
-
-            dec     hl
-            jr      _next
-
-_down:      ld      a,(qr_y)
-            inc     a
-            cp      QR_DIM
-            jr nc,  _change_dir
-
-            ld      (qr_y),a
-            ld      a,(qr_x)
-            inc     a
-
-            ld      de,QR_DIM+2     ; move x one right at the same time
-            add     hl,de
-            jr      _next
-
-_change_dir:
-            ld      a,(qr_dir)
-            cpl
-            ld      (qr_dir),a
-
-            ; move left as at the same time
-            ld      a,(qr_x)
-            dec     a
-            dec     hl
-
-_next:      ; A = qr_x
-            ; This check is for skipping the vertical sync line.
-            cp      6
-            jr nz,  _done
-            dec     a
-            dec     hl
-
-            ;
-_done:      ld      (qr_x),a
-            pop     de
-            pop     af
-
-            ret
-
-
+_l_shift:	;
+			ld		a,(qr_m)
+			ld		c,-1
+			rlca
+			jr nc,	_l_check_column6
+			dec		hl
+			dec		ix
+			jr		_l_check_column6
+_r_check_column6
+			ld		c,1
+_l_check_column6:
+			ld		b,a
+			ld		a,(qr_x)
+			add		a,c
+			cp		$6+1
+			jr nz,	_same_byte
+			rlc		b
+			dec		a
+_same_byte:
+			ld		(qr_x),a
+			pop		af
+			ld		a,b
+			pop		bc
+			ld		(qr_m),a
+			pop		de
+			ret
 
 ;
 ; Generic mask applying function. This routine calls
@@ -904,36 +795,45 @@ _done:      ld      (qr_x),a
 ;  A,BC,HL
 ;
 apply_mask:
-            ld      hl,QR_TMP_END_PTR
-            ld      c,QR_DIM-1
+            ld      hl,QR_DST_PTR+QR_DST_SIZE-1
+            ld		ix,qr_template_empty_bits+QR_DST_SIZE-1
+			ld      c,QR_DIM-1
 _main:
 			ld		b,QR_DIM
+			ld		a,00000100b		; pixel position for the last pixel
+			ld		(qr_m),a
 _loop:      
 _mask0_kernel:
             ld      a,b
 			dec		a
             add     a,c
             and     00000001b
-
-_ret:       jr nz,  _do_not_flip 
-            ld      a,(hl)
-            bit     0,a
-            jr z,   _permanent_module
-            xor     10000000b
-
+			push	bc
+			ld		a,(qr_m)
+			ld		b,a
+			jr nz,  _do_not_flip 
+			and		(ix)
+            jr z,	_permanent_module
+			xor		(hl)
             ld      (hl),a
-_do_not_flip:
 _permanent_module:
-            dec     hl
+			ld		a,b
+_do_not_flip:
+			rlca
+			jr nc,	_same_byte
+			dec		hl
+			dec		ix
+_same_byte:
+			ld		(qr_m),a
+			pop		bc
 			djnz	_loop
-			dec     hl
-
+			dec		hl		; this is because that 1 pixel QR-code shift
+			dec		ix
             dec     c
             jp p,   _main
 
             ret
 qr_end:
-            ;db      11101111b,10001001b     ; L = 3, mask 0
 
 ;
 ; Follwing buffers are freely relocatable. Note that both
@@ -943,10 +843,10 @@ qr_end:
 
 ENC_BUF_PTR:
             ds      ENC_BUF_SIZE	; QR_CWDS_EWDS i.e. code words + ecc words
-
 PHR_BUF_PTR:
-QR_DST_PTR: ds      QR_DST_SIZE		; PHR_BUF_SIZE < QR_DST_SIZE
-QR_TMP_PTR: ds      QR_TMP_SIZE		;
+			ds		PHR_BUF_SIZE
+
+QR_DST_PTR: ds      QR_DST_SIZE		;
 
 
             org ($+255) & 0xff00

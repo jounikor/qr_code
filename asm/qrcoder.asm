@@ -328,16 +328,12 @@ qr_code_generate:
             call    polydiv
 
             ; Encode codewords, ecc words and padding to qr-code bits layout
-            call    encode_layout
-			call	apply_mask
-			ret
-
+            jp		encode_layout
 
 ; Polynomial division.
 ;
 ; Inputs:
-;  HL = ptr to polynomial (size of 55 octets)
-;  DE = ptr to encoding buffer (size of 55+15 octets)
+;  none
 ;
 ; Returns:
 ;  DE = start of ecc words
@@ -677,6 +673,63 @@ _while:     ; If bit is 0 in the empty bit bitmask -> skip
             dec     c
             jr nz,  _main
 
+            ;ret
+;
+; Generic mask applying function. This routine calls
+; mask kernels pointed by IX.
+; 
+; Note: The kernel pointed by IX must have the 4 octets preamble
+; for next kernel and the 15 bit mask+ecc to be inserted into the
+; QR-Code.
+;
+; Inputs:
+;  HL = ptr to qr-code template
+;  IX = ptr to mask kernel function
+; 
+; Returns:
+;  None.
+;
+; Trashes:
+;  A,BC,HL
+;
+apply_mask:
+            ld      hl,QR_DST_PTR+QR_DST_SIZE-1
+            ld		ix,qr_template_empty_bits+QR_DST_SIZE-1
+			ld      c,QR_DIM-1
+_main:
+			ld		b,QR_DIM
+			ld		a,00000100b		; pixel position for the last pixel
+			ld		(qr_m),a
+_loop:      
+_mask0_kernel:
+            ld      a,b
+			dec		a
+            add     a,c
+            and     00000001b
+			push	bc
+			ld		a,(qr_m)
+			ld		b,a
+			jr nz,  _do_not_flip 
+			and		(ix)
+            jr z,	_permanent_module
+			xor		(hl)
+            ld      (hl),a
+_permanent_module:
+			ld		a,b
+_do_not_flip:
+			rlca
+			jr nc,	_same_byte
+			dec		hl
+			dec		ix
+_same_byte:
+			ld		(qr_m),a
+			pop		bc
+			djnz	_loop
+			dec		hl		; this is because that 1 pixel QR-code shift
+			dec		ix
+            dec     c
+            jp p,   _main
+
             ret
 
 ;
@@ -776,63 +829,6 @@ _same_byte:
 			pop		de
 			ret
 
-;
-; Generic mask applying function. This routine calls
-; mask kernels pointed by IX.
-; 
-; Note: The kernel pointed by IX must have the 4 octets preamble
-; for next kernel and the 15 bit mask+ecc to be inserted into the
-; QR-Code.
-;
-; Inputs:
-;  HL = ptr to qr-code template
-;  IX = ptr to mask kernel function
-; 
-; Returns:
-;  None.
-;
-; Trashes:
-;  A,BC,HL
-;
-apply_mask:
-            ld      hl,QR_DST_PTR+QR_DST_SIZE-1
-            ld		ix,qr_template_empty_bits+QR_DST_SIZE-1
-			ld      c,QR_DIM-1
-_main:
-			ld		b,QR_DIM
-			ld		a,00000100b		; pixel position for the last pixel
-			ld		(qr_m),a
-_loop:      
-_mask0_kernel:
-            ld      a,b
-			dec		a
-            add     a,c
-            and     00000001b
-			push	bc
-			ld		a,(qr_m)
-			ld		b,a
-			jr nz,  _do_not_flip 
-			and		(ix)
-            jr z,	_permanent_module
-			xor		(hl)
-            ld      (hl),a
-_permanent_module:
-			ld		a,b
-_do_not_flip:
-			rlca
-			jr nc,	_same_byte
-			dec		hl
-			dec		ix
-_same_byte:
-			ld		(qr_m),a
-			pop		bc
-			djnz	_loop
-			dec		hl		; this is because that 1 pixel QR-code shift
-			dec		ix
-            dec     c
-            jp p,   _main
-
-            ret
 qr_end:
 
 ;
@@ -844,8 +840,7 @@ qr_end:
 ENC_BUF_PTR:
             ds      ENC_BUF_SIZE	; QR_CWDS_EWDS i.e. code words + ecc words
 PHR_BUF_PTR:
-			ds		PHR_BUF_SIZE
-
+			;ds		PHR_BUF_SIZE	; overlaid on QR_DST_PTR buffer
 QR_DST_PTR: ds      QR_DST_SIZE		;
 
 

@@ -651,11 +651,10 @@ _skip1:     ; if C_flag = 0 then a white pixel, if 1 then a black pixel
 			push    bc
 			push	af
 
-            jr nc,	_black
-            ld		c,$ff
-            jr		_skip2
-_black:     ld		c,0
-_skip2:     ;
+			ld		c,0
+            jr nc,	_white
+			dec		c
+_white:     ;
             ; Check if need to skip this module/pixel..
 			ld		a,(qr_m)
 _while:     ; If bit is 0 in the empty bit bitmask -> skip

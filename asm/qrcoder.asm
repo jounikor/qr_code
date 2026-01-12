@@ -635,6 +635,8 @@ encode_layout:
 			ld      hl,QR_DST_PTR+QR_DST_SIZE-1
 			ld		ix,qr_template_empty_bits+QR_DST_SIZE-1
             ld      de,ENC_BUF_PTR
+			push	hl
+			push	ix
 
             ld      c,7
             ld      a,10000000b
@@ -673,6 +675,9 @@ _while:     ; If bit is 0 in the empty bit bitmask -> skip
             jr nz,  _main
 
             ;ret
+
+			pop		ix
+			pop		hl
 ;
 ; Generic mask applying function. This routine calls
 ; mask kernels pointed by IX.
@@ -682,8 +687,8 @@ _while:     ; If bit is 0 in the empty bit bitmask -> skip
 ; QR-Code.
 ;
 ; Inputs:
-;  HL = ptr to qr-code template
-;  IX = ptr to mask kernel function
+;  HL = ptr to QR_DST_PTR+QR_DST_SIZE-1
+;  IX = ptr to qr_template_empty_bits+QR_DST_SIZE-1
 ; 
 ; Returns:
 ;  None.
@@ -692,39 +697,23 @@ _while:     ; If bit is 0 in the empty bit bitmask -> skip
 ;  A,BC,HL,D
 ;
 apply_mask:
-            ld      hl,QR_DST_PTR+QR_DST_SIZE-1
-            ld		ix,qr_template_empty_bits+QR_DST_SIZE-1
+            ;ld      hl,QR_DST_PTR+QR_DST_SIZE-1
+            ;ld		ix,qr_template_empty_bits+QR_DST_SIZE-1
 			ld      c,QR_DIM
-_main:
-			ld		b,QR_DIM
-			ld		a,00000100b		; pixel position for the last pixel
-_loop:      
+			ld		d,01010101b
 _mask0_kernel:
-            ld		d,a
-			ld      a,b
-            add     a,c
-            and     00000001b
+			ld		b,4
+_loop:      
 			ld		a,d
-			jr nz,  _do_not_flip 
 			and		(ix)
-            jr z,	_permanent_module
 			xor		(hl)
-            ld      (hl),a
-_permanent_module:
-			ld		a,d
-_do_not_flip:
-			rlca
-			jr nc,	_same_byte
+			ld		(hl),a
 			dec		hl
 			dec		ix
-_same_byte:
-			
 			djnz	_loop
-			dec		hl		; this is because that 1 pixel QR-code shift
-			dec		ix
-            dec     c
-            jr nz,	_main
-
+            rlc		d
+			dec     c
+            jr nz,	_mask0_kernel
             ret
 
 ;

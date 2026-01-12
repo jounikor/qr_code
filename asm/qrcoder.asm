@@ -165,8 +165,11 @@ get_address_BC:
 
 
 ;----------------------------------------------------------------------------
-; Start pof QR code
+; Start of the QR-code generator
+;
+;
 			org		($+255) & 0xff00
+
 ; Note! the following tables and variabled must be 256 bytes aligned.
 ;
 

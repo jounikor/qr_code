@@ -177,8 +177,13 @@ patterns:
 gen_15:     db      8,183,61,91,202,37,51,58,58,237,140,124,5,99,105
 qr_stm:     db      0                       ;
 qr_y_adder:	dw		0
-			ds      32-15-3                 ; space for ascii till space
-            ;db      ' ',0,0,0,'$','%',0,0,0,0,'*','+',0,'-','.','/'
+qr_code_init:		;		One time init of QR-code generation
+			ld      b,0 
+            ld      hl,GF_E2G_PTR
+            ld      a,1
+            jp      gf_not_over_256
+            org		($ & 0xff00) + 32	; make sure not to overflow this..
+			;db      ' ',0,0,0,'$','%',0,0,0,0,'*','+',0,'-','.','/'
             db       36,0,0,0, 37, 38,0,0,0,0, 39, 40,0, 41, 42, 43
             ;db      '0','1','2','3','4','5','6','7','8','9',':'
             db        0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  44
@@ -275,37 +280,37 @@ qr_mid:
 ; Trashes:
 ;  Assume all except IY.
 ;
-qr_code_init:
+;qr_code_init:
             ; gf_init and decode_qr_layout need to be called only
             ; once for any number of calculated QR-Codes.
 ;
 ; Generate Galois Field tables
-_gf_init:
-            ld      b,0 
-            ld      hl,GF_E2G_PTR
-            ld      a,1
-            jr      _not_over_256
+gf_init:
+            ;ld      b,0 
+            ;ld      hl,GF_E2G_PTR
+            ;ld      a,1
+            ;jr      _not_over_256
 
-_main:      ;
+gf_main:      ;
             add     a,a
-            jr nc,  _not_over_256
+            jr nc,  gf_not_over_256
             ;
             xor     285-256
-_not_over_256:
+gf_not_over_256:
             ld      (hl),a
             inc     l
-            djnz    _main
+            djnz    gf_main
             ;
 
             ld      b,254
-_copy:      ;
+gf_copy:      ;
             ld      l,b
             ld      a,(hl)      ; from gf_e2g[n]
             inc     h
             ld      l,a
             ld      (hl),b      ; to gf_g2e[f_e2g[n]] = n
             dec     h
-            djnz    _copy
+            djnz    gf_copy
 			ret
 
 

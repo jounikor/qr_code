@@ -15,6 +15,10 @@ Support:
 
 Some notes:
 * The quiet zone is not part of the output QR-Code.
+* 'master' branch has a generic 3-L Z80 assembly decoder.
+* 'sizeopt' branch has a heavily size optimized (code and
+  work RAM) 3-L Z80 assembly decoder.
+
 
 How to use:
 

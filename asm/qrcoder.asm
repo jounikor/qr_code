@@ -31,9 +31,11 @@ QR_DST_SIZE     equ     QR_DIM*4
 
 ; Test driving program starts here..
 
+			DEVICE ZXSPECTRUM128
+
             org $8000
 
-TEST_SPECTRUM	equ		1
+	DEFINE	TEST_SPECTRUM	1
 
 
 ;
@@ -54,7 +56,7 @@ main:
 			ld      ix,test_string2
             ld      a,TEST_STR_LEN2
             call    qr_code_generate
-    IF DEFINED TEST_SPECTRUM    
+    IFDEF TEST_SPECTRUM    
             ld      b,64
             ld      c,112
             call    qr_code_render_spectrum
@@ -62,7 +64,7 @@ main:
 			ld      ix,test_string1
             ld      a,TEST_STR_LEN1
             call    qr_code_generate
-    IF DEFINED TEST_SPECTRUM    
+    IFDEF TEST_SPECTRUM    
             ld      b,64
             ld      c,176
             call    qr_code_render_spectrum
@@ -88,7 +90,7 @@ TEST_STR_LEN2	equ	29
 test_string2:
 			;db		"https://www.youtube.com/watch?v=a_RNDL10ERg"
 			db		"https://www.youtube.com/watch"
-	IF DEFINED TEST_SPECTRUM
+	IFDEF TEST_SPECTRUM
 ;
 ; Render QR-Code (on ZX Spectrum..)
 ;
@@ -115,7 +117,7 @@ _line_loop: ;
 			ld		(hl),a
 			inc		ix
 			inc		hl
-			ENDM
+			ENDR
 			
 			inc     b
             exx
@@ -233,7 +235,6 @@ qr_template_static_bits:
 			db		01000001b,00000000b,00000001b,00000100b
 			db		01111111b,01010101b,01010101b,11111100b
 			db		00000000b,01000000b,00000000b,00000000b
-			;db		01010110b,11000000b,00000011b,00010000b
 			db		01110111b,11000000b,00000011b,00010000b
 			db		00000000b,00000000b,00000000b,00000000b
 			db		00000001b,00000000b,00000000b,00000000b
@@ -391,7 +392,7 @@ encode_phrase:
 			; 0000nnnn of length
 			rld
 
-_main:
+.main:
 			ld		a,(ix+0)
 			ld		c,a
 			inc		ix
@@ -403,7 +404,7 @@ _main:
 			inc		hl
 			ld		a,c
 			rld
-			djnz	_main
+			djnz	.main
 			
 			; Add 0000b stop bot sequence
 			xor		a		; Clears C_flag
@@ -414,23 +415,22 @@ _main:
 			; Sequence is already byte aligned, so check if we need to pad..
             pop     de
 			push	hl
-            ;ccf
             sbc     hl,de
             ld      a,55
             sub     l
             and     a
 			pop		hl
-            jr z,   _no_alignment
+            jr z,   .no_alignment
 
             ;
             ld      b,a
             ld      a,11101100b
-_pad:       ld      (hl),a
+.pad:       ld      (hl),a
             inc     hl
             xor     11111101b
-            djnz    _pad
+            djnz    .pad
 
-_no_alignment:
+.no_alignment:
 			;jr		_no_alignment
 
 
@@ -467,9 +467,9 @@ polydiv:    ;
             ; Clear the rest of the ecc_buffer
             xor     a
             ld      b,15
-_clear:     ld      (de),a
+.clear:     ld      (de),a
             inc     de
-            djnz    _clear
+            djnz    .clear
 
             ; polynomial division main loop..
             ld      c,55            ; "polylen"
@@ -478,7 +478,7 @@ _clear:     ld      (de),a
             ; HL = phrase i.e., polynomial
             ; DE = generator
 
-_div_main:  ;
+.div_main:  ;
             ; get 'ex' into A
             ld      a,(hl)
             inc     hl
@@ -490,7 +490,7 @@ _div_main:  ;
             ld      de,gen_15
             push    hl
 
-_div_loop:  ;
+.div_loop:  ;
             push    af
             
             ; A = ex + gen[m] if ex + gen[m] < 256 else ex + gen[m] - 255
@@ -513,13 +513,13 @@ _div_loop:  ;
             inc     hl
             pop     af
             ;
-            djnz    _div_loop
+            djnz    .div_loop
 
             ;
             ;
             pop     hl          ; ecc words
             dec     c
-            jr nz,  _div_main
+            jr nz,  .div_main
 
             ; move poly at the front of ECC
             pop     de          ; code words
@@ -568,27 +568,27 @@ encode_layout:
 
             ld      c,7
             ld      a,10000000b
-_main:      ld      b,80            ; 7*80 = 560 = (8*(55+15))
-_loop:      add     a,a     
-            jr nz,  _skip1
+.main:      ld      b,80            ; 7*80 = 560 = (8*(55+15))
+.loop:      add     a,a     
+            jr nz,  .skip1
             ld      a,(de)  
             inc     de
             adc     a,a     ; add stop bit and move bit 7 into C_flag
 
-_skip1:     ; if C_flag = 0 then a white pixel, if 1 then a black pixel
+.skip1:     ; if C_flag = 0 then a white pixel, if 1 then a black pixel
 			push    bc
 			push	af
 
 			ld		c,0
-            jr nc,	_white
+            jr nc,	.white
 			dec		c
-_white:     ;
+.white:     ;
             ; Check if need to skip this module/pixel..
 			ld		a,(qr_m)
-_while:     ; If bit is 0 in the empty bit bitmask -> skip
+.while:     ; If bit is 0 in the empty bit bitmask -> skip
             and		(ix)
             call z,	pos_next
-            jr z,	_while
+            jr z,	.while
             
 			and		c
 			or		(hl)
@@ -597,9 +597,9 @@ _while:     ; If bit is 0 in the empty bit bitmask -> skip
 
 			pop		af
             pop     bc
-            djnz    _loop
+            djnz    .loop
             dec     c
-            jr nz,  _main
+            jr nz,  .main
 
             ;ret
 
@@ -628,19 +628,19 @@ apply_mask:
             ;ld		ix,qr_template_empty_bits+QR_DST_SIZE-1
 			ld      c,QR_DIM
 			ld		d,01010101b
-_mask0_kernel:
+.mask0_kernel:
 			ld		b,4
-_loop:      
+.loop:      
 			ld		a,d
 			and		(ix)
 			xor		(hl)
 			ld		(hl),a
 			dec		hl
 			dec		ix
-			djnz	_loop
+			djnz	.loop
             rlc		d
 			dec     c
-            jr nz,	_mask0_kernel
+            jr nz,	.mask0_kernel
             ret
 
 ;
@@ -676,9 +676,9 @@ pos_next:
 			ld		a,(qr_stm)
 			add		a,10000000b
 			ld		(qr_stm),a
-			jr nc,	_l_shift
+			jr nc,	.l_shift
 			; 
-_r_shift_add_y:
+.r_shift_add_y:
 			cp		d
 			ld		a,(qr_y)
 			; C_flag = 0 if D == 0,   increase A
@@ -691,7 +691,7 @@ _r_shift_add_y:
 			adc		a,d
 			;
 			cp		QR_DIM
-			jr c,	_within_bounds
+			jr c,	.within_bounds
 			ld		a,d
 			cpl
 			ld		d,a
@@ -699,39 +699,39 @@ _r_shift_add_y:
 			neg
 			ld		e,a
 			ld		(qr_y_adder),de
-			jr		_l_shift
-_within_bounds:
+			jr		.l_shift
+.within_bounds:
 			ld		(qr_y),a
 			add		hl,de
 			add		ix,de
 
 			ld		a,(qr_m)
 			rrca
-			jr nc,	_r_check_column6
+			jr nc,	.r_check_column6
 			inc		hl
 			inc		ix
-_r_same_byte:
-			jr		_r_check_column6
+.r_same_byte:
+			jr		.r_check_column6
 
-_l_shift:	;
+.l_shift:	;
 			ld		a,(qr_m)
 			ld		c,-1
 			rlca
-			jr nc,	_l_check_column6
+			jr nc,	.l_check_column6
 			dec		hl
 			dec		ix
-			jr		_l_check_column6
-_r_check_column6
+			jr		.l_check_column6
+.r_check_column6
 			ld		c,1
-_l_check_column6:
+.l_check_column6:
 			ld		b,a
 			ld		a,(qr_x)
 			add		a,c
 			cp		$6+1
-			jr nz,	_same_byte
+			jr nz,	.same_byte
 			rlc		b
 			dec		a
-_same_byte:
+.same_byte:
 			ld		(qr_x),a
 			pop		af
 			ld		a,b
@@ -762,8 +762,6 @@ GF_E2G_PTR: ds      256
 GF_G2E_PTR: ds      256
 
 
-    END main
-
-
+	SAVESNA		"qrcoder.sna",main
 
 

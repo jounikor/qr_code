@@ -1,0 +1,47 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "dezog",
+            "request": "launch",
+            "name": "Simulator - ZX128K Spectrum",
+            "remoteType": "zsim",
+            "zsim": {
+                "visualMemory": true,
+                "memoryModel": "ZX128K",
+                "ulaScreen": "spectrum",
+                "zxKeyboard": "spectrum",
+                "customVisualMemBlocks": [
+                    {
+                    "address": "0x6000",
+                    "size": "0x100",
+                    }
+                ]
+                //"zxBeeper": true
+            },
+            "sjasmplus": [
+                {
+                    "path": "${workspaceFolder}/qrcoder.sld"
+                }
+            ],
+            "commandsAfterLaunch": [
+              "-rmv"  
+            ],
+            "smartDisassemblerArgs": {
+                "lowerCase": false
+            },
+            "history": {
+                "reverseDebugInstructionCount": 1000000,
+                "spotCount": 10,
+                "codeCoverageEnabled": true
+            },
+            "startAutomatically": false,
+            "rootFolder": "${workspaceFolder}",
+            "load": "qrcoder.sna",
+            //"topOfStack": "Add your top of stack / label name"
+        },
+    ]
+}

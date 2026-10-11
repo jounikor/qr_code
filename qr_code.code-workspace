@@ -1,0 +1,10 @@
+{
+	"folders": [
+		{
+			"path": "./asm"
+		}
+	],
+	"settings": {
+		"makefile.configureOnOpen": false
+	}
+}

@@ -32,10 +32,12 @@ QR_DST_SIZE     equ     QR_DIM*4
 ; Test driving program starts here..
 
 			DEVICE ZXSPECTRUM128
+			SLDOPT  COMMENT WPMEM, LOGPOINT, ASSERTION
 
             org $8000
 
 	DEFINE	TEST_SPECTRUM	1
+MASK		equ		0		; 0 or 1
 
 
 ;
@@ -85,11 +87,11 @@ test_string1:
 TEST_STR_LEN1	equ	34
             db      "https://www.deadcoderssociety.net/"
 
-TEST_STR_LEN2	equ	29
-;TEST_STR_LEN2	equ	43
+;TEST_STR_LEN2	equ	29
+TEST_STR_LEN2	equ	43-1
 test_string2:
-			;db		"https://www.youtube.com/watch?v=a_RNDL10ERg"
-			db		"https://www.youtube.com/watch"
+			db		"http://www.youtube.com/watch?v=a_RNDL10ERg"
+			;db		"https://www.youtube.com/watch"
 	IFDEF TEST_SPECTRUM
 ;
 ; Render QR-Code (on ZX Spectrum..)
@@ -227,6 +229,8 @@ qr_template_empty_bits:
 			;		      starting pos for encoding    ^  
 qr_template_static_bits:
 			;		 +                                 +
+	IF MASK=0
+			; mask pattern 0: 111011111000100
 			db		01111111b,00000000b,00000001b,11111100b
 			db		01000001b,00000000b,00000001b,00000100b
 			db		01011101b,01000000b,00000001b,01110100b
@@ -256,7 +260,41 @@ qr_template_static_bits:
 			db		01011101b,01000000b,00000000b,00000000b
 			db		01000001b,01000000b,00000000b,00000000b
 			db		01111111b,01000000b,00000000b,00000000b
+	ENDIF
+	IF MASK=1
+			; mask pattern 1: 111001 01 1110011
+			db		01111111b,01000000b,00000001b,11111100b	; row % 2 = 0
+			db		01000001b,01000000b,00000001b,01110100b	; row % 2 = 1
+			db		01011101b,00000000b,00000001b,01110100b
+			db		01011101b,00000000b,00000001b,01110100b
+			db		01011101b,01000000b,00000001b,01110100b
+			db		01000001b,01000000b,00000001b,00000100b
+			db		01111111b,01010101b,01010101b,11111100b
+			db		00000000b,01000000b,00000000b,00000000b
+			db		01110011b,01000000b,00000011b,11001100b	;;
+			db		00000000b,00000000b,00000000b,00000000b
+			db		00000001b,00000000b,00000000b,00000000b
+			db		00000000b,00000000b,00000000b,00000000b
+			db		00000001b,00000000b,00000000b,00000000b
+			db		00000000b,00000000b,00000000b,00000000b
+			db		00000001b,00000000b,00000000b,00000000b
+			db		00000000b,00000000b,00000000b,00000000b
+			db		00000001b,00000000b,00000000b,00000000b
+			db		00000000b,00000000b,00000000b,00000000b
+			db		00000001b,00000000b,00000000b,00000000b
+			db		00000000b,00000000b,00000000b,00000000b
+			db		00000001b,00000000b,00000111b,11000000b
+			db		00000000b,01000000b,00000100b,01000000b
+			db		01111111b,00000000b,00000101b,01000000b
+			db		01000001b,01000000b,00000100b,01000000b
+			db		01011101b,00000000b,00000111b,11000000b
+			db		01011101b,00000000b,00000000b,00000000b
+			db		01011101b,01000000b,00000000b,00000000b
+			db		01000001b,01000000b,00000000b,00000000b
+			db		01111111b,01000000b,00000000b,00000000b	; row % 2 = 0
+	ENDIF
 qr_mid:
+
 
 ;----------------------------------------------------------------------------
 ;
@@ -623,7 +661,9 @@ encode_layout:
 ; Trashes:
 ;  A,BC,HL,D
 ;
+
 apply_mask:
+	IF MASK = 0
             ;ld      hl,QR_DST_PTR+QR_DST_SIZE-1
             ;ld		ix,qr_template_empty_bits+QR_DST_SIZE-1
 			ld      c,QR_DIM
@@ -642,6 +682,30 @@ apply_mask:
 			dec     c
             jr nz,	.mask0_kernel
             ret
+	ENDIF
+	IF MASK = 1
+            ;ld      hl,QR_DST_PTR+QR_DST_SIZE-1
+            ;ld		ix,qr_template_empty_bits+QR_DST_SIZE-1
+			ld      c,QR_DIM
+			ld		d,11111111b
+.mask1_kernel:
+			ld		b,4
+.loop:      
+			ld		a,d
+			and		(ix)
+			xor		(hl)
+			ld		(hl),a
+			dec		hl
+			dec		ix
+			djnz	.loop
+			ld		a,d
+			cpl
+			ld		d,a
+			dec     c
+            jr nz,	.mask1_kernel
+            ret
+	ENDIF
+
 
 ;
 ; Return the next candidate position in the QR-Code matrix.

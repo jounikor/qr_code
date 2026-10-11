@@ -1,5 +1,5 @@
 ; This is the size "optimized" version that is forced to 3-L
-; and mask0.
+; and mask0. Only byte mode.
 ; Compiled using Pasmo (see https://github.com/jounikor/pasmo)
 ; pasmo -1 --tapbas --alocal qrcoder.asm tap.tap tap.map
 ;
@@ -51,16 +51,16 @@ main:
             call    qr_code_init
 
 			; For each generated QR-code
-			ld      ix,test_string1
-            ld      a,TEST_STR_LEN1
+			ld      ix,test_string2
+            ld      a,TEST_STR_LEN2
             call    qr_code_generate
     IF DEFINED TEST_SPECTRUM    
             ld      b,64
             ld      c,112
             call    qr_code_render_spectrum
 	ENDIF
-			ld      ix,test_string2
-            ld      a,TEST_STR_LEN2
+			ld      ix,test_string1
+            ld      a,TEST_STR_LEN1
             call    qr_code_generate
     IF DEFINED TEST_SPECTRUM    
             ld      b,64
@@ -79,13 +79,15 @@ main:
 
 ;TEST_STR_LEN1	equ	22
 test_string1:
-;            db      "HTTP://WWW.SCOOPEX.US/"
-TEST_STR_LEN1	equ	33
-            db      "HTTP://WWW.DEADCODERSSOCIETY.NET/"
+;            db      "http://www.scoopex.us/"
+TEST_STR_LEN1	equ	34
+            db      "https://www.deadcoderssociety.net/"
 
-TEST_STR_LEN2	equ	67
+TEST_STR_LEN2	equ	29
+;TEST_STR_LEN2	equ	43
 test_string2:
-			db	"HTTPS://WWW.LIPPU.FI/EVENT/JINJER-HELSINGIN-KULTTUURITALO-20307254/"
+			;db		"https://www.youtube.com/watch?v=a_RNDL10ERg"
+			db		"https://www.youtube.com/watch"
 	IF DEFINED TEST_SPECTRUM
 ;
 ; Render QR-Code (on ZX Spectrum..)
@@ -174,7 +176,6 @@ get_address_BC:
 ;
 
 qr_sta:
-alnum_map:
 patterns:
             ; Generator polynomial for 3-L
 gen_15:     db      8,183,61,91,202,37,51,58,58,237,140,124,5,99,105
@@ -185,25 +186,11 @@ qr_code_init:		;		One time init of QR-code generation
             ld      hl,GF_E2G_PTR
             ld      a,1
             jp      gf_not_over_256
-            org		($ & 0xff00) + 32	; make sure not to overflow this..
-			;db      ' ',0,0,0,'$','%',0,0,0,0,'*','+',0,'-','.','/'
-            db       36,0,0,0, 37, 38,0,0,0,0, 39, 40,0, 41, 42, 43
-            ;db      '0','1','2','3','4','5','6','7','8','9',':'
-            db        0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  44
 qr_y:       db      0
 qr_x:       db      0
-qr_dir:     db      0
 qr_m:		db		0
 qr_final_mask:
             dw      0
-            ;db      'A','B','C','D','E','F','G','H','I'
-            db       10, 11, 12, 13, 14, 15, 16, 17, 18
-            ;db      'J','K','L','M','N','O','P','Q','R'
-            db       19, 20, 21, 22, 23, 24, 25, 26, 27
-            ;db      'S','T','U','V','W','X','Y','Z' 
-            db       28, 29, 30, 31, 32, 33, 34, 35
-            ; after this we have 256-90 left for this 256 bytes segment
-
 qr_template_empty_bits:
 			;		 +                                 +
 			db		00000000b,00111111b,11111100b,00000000b
@@ -354,7 +341,6 @@ qr_code_generate:
 ;
 ; Inputs:
 ;  IX = prt to string phrase
-;  DE = ptr to dst buffer (size of 55 octets)
 ;  A  = string length
 ;
 ; Returns:
@@ -364,157 +350,91 @@ qr_code_generate:
 ;  A,BC,DE,HL,IX
 ;
 encode_phrase:
-            ld      de,PHR_BUF_PTR
-            push    de
-            ;
+            ld      hl,PHR_BUF_PTR
+            push    hl
+
+			;
             ; Bits needed by alphanumeric encoder are:
             ; b = 4 + c + 11(d DIV 2) + 6(d MOD 2), where
-            ; where c = 9, d = strlen(phrase)
+            ;     where c = 9, d = strlen(phrase)
+			;
+			; Bits needed by byte encder are:
+			; b = 4 + c + d*w
+			;    where c = 8, d = phrase len
+			;
+
+			; pad  bytes 236 and 17 = 11101100b and  00010001b
+
             ;
             ; In 3-L QR-Code we have 55 octets for code words, which means
-            ; D can be 76 characters. That fits in to 9 bit length.
+            ; D can be 76 alphanumeric characters or 55 bytes.
             ;
-            ; B = string len in octets, 9 bits but only 7 bits can be used.. 
+            ; B = alphanumeric string len in octets, 9 bits but only 7 bits can be used 
             ;     i.e., 00 nnnnnnn -> A = 0nn nnnnn 
+            ; B = byte string len in octets, 8 bits but only 7 will can be used.
+            ;     i.e., 00 nnnnnnn -> A = 0nn nnnnn 
+			;
 
             ld      b,a
             rlca
             rlca
             rlca
-            and     00000011b
-            or      00100000b  ; mode = 0010b and 0 + 0nn of length
-            ld      (de),a
-            inc     de
+            rlca
+            
+			; mode = 0100b and nnnn0000 of length
+			and     00001111b
+            or      01000000b
+            ld      (hl),a
+            inc     hl
             ld      a,b
-            and     00011111b   ; remaining 5 bits of length
-            or      00100000b   ; stop bit
 
-            ld      c,b
-_main:      ;
-            ; A  = bit buffer with stop bit. C_flag=1 when A becomess full
-            ; C  = number of character pairs
-            ; DE = destination
-            ; IX = source
-            ; C_flag = pushed into stack whether there is odd number of 
-            ;          characters.. if even C_flag = 0
-            ;
-            ; get 11 bits encoded 2x character
-            ld      b,4
-            ld      h,0
+			; 0000nnnn of length
+			rld
 
-            dec     c
-            jr z,   _add_odd_char
-            jp m,   _no_odd_char
-            dec     c
-
-            push    de
-			ld		d,h
-
-			ld      h,HIGH(alnum_map)
-            ld      l,(ix+0)
-            ld      e,(hl)
-            inc     ix
+_main:
+			ld		a,(ix+0)
+			ld		c,a
+			inc		ix
+			rrca
+			rrca
+			rrca
+			rrca
+			rld
+			inc		hl
+			ld		a,c
+			rld
+			djnz	_main
 			
-			; mul45
-			push	hl
-			ld		b,8-2
-			ld		h,45<<2
-			ld		l,d
-_mul45loop:
-			add		hl,hl
-			jr nc,	_no_mul_add
-			add		hl,de
-_no_mul_add:
-			djnz	_mul45loop
-			ex		de,hl
-			pop		hl
-			;
+			; Add 0000b stop bot sequence
+			xor		a		; Clears C_flag
+			rld
+			inc		hl
 
-            ld      l,(ix+0)
-            ld      l,(hl)
-            inc     ix
-            ld      h,b
-			add     hl,de
+
+			; Sequence is already byte aligned, so check if we need to pad..
             pop     de
-
-            ld      b,3
-            sla     h
-            sla     h
-            sla     h
-            sla     h
-            sla     h
-            ; upper 3 bits of the encoded chars
-_bits1:     sla     h
-            adc     a,a
-            jr nc,  _no_ovl1
-            ld      (de),a
-            inc     de
-            ld      a,1
-_no_ovl1:   djnz    _bits1
-            ; lower 8 bits of the encoded chars
-            ld      b,8
-_bits2:     sla     l
-            adc     a,a
-            jr nc,  _no_ovl2
-            ld      (de),a
-            inc     de
-            ld      a,1
-_no_ovl2:   djnz    _bits2
-            ; next 2 chars..
-            jr      _main
-
-_add_odd_char:
-            ; We need to do one more char..
-            ld      h,HIGH(alnum_map)
-            ld      l,(ix+0)
-            ld      h,(hl)
-            inc     ix
-
-            ; 6 bits of the encoded chars + terminating 0000b
-            ; Since we support only 3-L we know that terminating 0s
-            ; are always total 4 not less.
-            ld      b,6+4
-            sla     h
-            sla     h
-_no_odd_char:
-_bits3      sla     h
-            adc     a,a
-            jr nc,  _no_ovl3
-            ld      (de),a
-            inc     de
-            ld      a,1
-_no_ovl3:   djnz    _bits3
-
-            ; Align to full byte
-            jr c,   _aligned
-_align8:    add     a,a
-            jr nc,  _align8
-            ld      (de),a
-            inc     de
-_aligned:
-            ; Check if padding is required..
-            pop     hl
-            push    de
-            ex      de,hl
-            ccf
+			push	hl
+            ;ccf
             sbc     hl,de
             ld      a,55
             sub     l
             and     a
-            pop     de
+			pop		hl
             jr z,   _no_alignment
 
             ;
             ld      b,a
             ld      a,11101100b
-_pad:       ld      (de),a
-            inc     de
+_pad:       ld      (hl),a
+            inc     hl
             xor     11111101b
             djnz    _pad
 
 _no_alignment:
-            ;scf         ; C_flag = 1
-            ;ret			; flow to next routine
+			;jr		_no_alignment
+
+
+
 
 ; Polynomial division.
 ;

@@ -185,11 +185,6 @@ patterns:
 gen_15:     db      8,183,61,91,202,37,51,58,58,237,140,124,5,99,105
 qr_stm:     db      0                       ;
 qr_y_adder:	dw		0
-qr_code_init:		;		One time init of QR-code generation
-			ld      b,0 
-            ld      hl,GF_E2G_PTR
-            ld      a,1
-            jp      gf_not_over_256
 qr_y:       db      0
 qr_x:       db      0
 qr_m:		db		0
@@ -295,6 +290,16 @@ qr_template_static_bits:
 	ENDIF
 qr_mid:
 
+;
+;
+;
+;
+
+qr_code_init:		;		One time init of QR-code generation
+			ld      b,0 
+            ld      hl,GF_E2G_PTR
+            ld      a,1
+            jr      gf_not_over_256
 
 ;----------------------------------------------------------------------------
 ;
@@ -314,12 +319,6 @@ qr_mid:
             ; once for any number of calculated QR-Codes.
 ;
 ; Generate Galois Field tables
-gf_init:
-            ;ld      b,0 
-            ;ld      hl,GF_E2G_PTR
-            ;ld      a,1
-            ;jr      _not_over_256
-
 gf_main:      ;
             add     a,a
             jr nc,  gf_not_over_256

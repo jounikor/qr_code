@@ -1,7 +1,6 @@
 ; This is the size "optimized" version that is forced to 3-L
-; and mask0. Only byte mode.
-; Compiled using Pasmo (see https://github.com/jounikor/pasmo)
-; pasmo -1 --tapbas --alocal qrcoder.asm tap.tap tap.map
+; and mask0 (mask1) amd byte mode.
+; Compiled using sjasmplus 
 ;
 
 ; If defined then 1 pixel "empty" border is added to left
@@ -19,7 +18,7 @@
 QR_DIM          equ     29
 QR_CWDS         equ     55            
 QR_CWDS_EWDS    equ     QR_CWDS+15
-QR_MAX_PHRASE   equ     76
+QR_MAX_PHRASE   equ     55
 QR_SHIFT		equ		1		; output QR-code is shifted right
 
 ;
@@ -27,6 +26,8 @@ PHR_BUF_SIZE    equ     QR_CWDS
 ENC_BUF_SIZE    equ     QR_CWDS_EWDS
 QR_DST_SIZE     equ     QR_DIM*4
 
+; Set to 0 for mask0 and 1 for mask1
+MASK		equ		0		; 0 or 1
 
 
 ; Test driving program starts here..
@@ -37,8 +38,6 @@ QR_DST_SIZE     equ     QR_DIM*4
             org $8000
 
 	DEFINE	TEST_SPECTRUM	1
-MASK		equ		0		; 0 or 1
-
 
 ;
 ; Some sample code..
@@ -188,8 +187,9 @@ qr_y_adder:	dw		0
 qr_y:       db      0
 qr_x:       db      0
 qr_m:		db		0
-qr_final_mask:
-            dw      0
+; Mark bits with one that can be used to encode dynamic opart of the
+; generated QR-code. Note that version, used mask etc are hardcoded
+; in this implementation.
 qr_template_empty_bits:
 			;		 +                                 +
 			db		00000000b,00111111b,11111100b,00000000b
@@ -222,9 +222,12 @@ qr_template_empty_bits:
 			db		00000000b,00111111b,11111111b,11111100b
 			db		00000000b,00111111b,11111111b,11111100b
 			;		      starting pos for encoding    ^  
-qr_template_static_bits:
+; Bits that are part of the static template. One has to first
+; AND with qr_template_empty_bits and then OR with below
+; qr_template_static_bits to get the hardcoded template.
 			;		 +                                 +
 	IF MASK=0
+qr_template_static_bits:
 			; mask pattern 0: 111011111000100
 			db		01111111b,00000000b,00000001b,11111100b
 			db		01000001b,00000000b,00000001b,00000100b
@@ -257,6 +260,7 @@ qr_template_static_bits:
 			db		01111111b,01000000b,00000000b,00000000b
 	ENDIF
 	IF MASK=1
+qr_template_static_bits:
 			; mask pattern 1: 111001 01 1110011
 			db		01111111b,01000000b,00000001b,11111100b	; row % 2 = 0
 			db		01000001b,01000000b,00000001b,01110100b	; row % 2 = 1
@@ -290,17 +294,6 @@ qr_template_static_bits:
 	ENDIF
 qr_mid:
 
-;
-;
-;
-;
-
-qr_code_init:		;		One time init of QR-code generation
-			ld      b,0 
-            ld      hl,GF_E2G_PTR
-            ld      a,1
-            jr      gf_not_over_256
-
 ;----------------------------------------------------------------------------
 ;
 ; Initialize QR-Code generation.
@@ -314,10 +307,15 @@ qr_code_init:		;		One time init of QR-code generation
 ; Trashes:
 ;  Assume all except IY.
 ;
-;qr_code_init:
-            ; gf_init and decode_qr_layout need to be called only
-            ; once for any number of calculated QR-Codes.
+; qr_code_init  need to be called only
+; once for any number of calculated QR-Codes.
 ;
+qr_code_init:		;		One time init of QR-code generation
+			ld      b,0 
+            ld      hl,GF_E2G_PTR
+            ld      a,1
+            jr      gf_not_over_256
+
 ; Generate Galois Field tables
 gf_main:      ;
             add     a,a
@@ -343,35 +341,14 @@ gf_copy:      ;
 
 
 ;
-; Generate QR-Code (assume only 3-L)
-;
-; Inputs:
-;  IX = ptr to phrase. Max length is 76 characters.
-;  A = length of the phrase.
-;
-; Returns:
-;  none. (was C_flag = 0 if phrase is too long)
-;
-; Trashes:
-;  IY is not trashed.
-;
-qr_code_generate:
-            ; Make sure text phrase is not longer than 76 characters.
-            ;call    encode_phrase
-            ;call    polydiv
-
-            ; Encode codewords, ecc words and padding to qr-code bits layout
-            ;jp		encode_layout
-
-;
-; Encodes the input phrase. This function has a lot of assumption:
-; - only alphanumeric coding supported
+; Generate QR-Code (assume only 3-L) and encode the input phrase. This function
+; has a lot of assumptions:
+; - only byte mode coding supported
 ; - letters must be uppercase and no invalid characters allowed
 ; - maximum phrase length after encoding is 55 bytes
-; - 
 ; 
 ; The function takes also care of:
-; - adding mode (0010b) + length (9 bits)
+; - adding mode (0100b for byte mode) + length (8 bits for byte mode)
 ; - termination bits (up to 4)
 ; - alignment to octet boundary
 ; - padding (if needed)
@@ -387,28 +364,23 @@ qr_code_generate:
 ; Trashes:
 ;  A,BC,DE,HL,IX
 ;
-encode_phrase:
+qr_code_generate:
+  
+;
+; encode_phrase part
             ld      hl,PHR_BUF_PTR
             push    hl
 
 			;
-            ; Bits needed by alphanumeric encoder are:
-            ; b = 4 + c + 11(d DIV 2) + 6(d MOD 2), where
-            ;     where c = 9, d = strlen(phrase)
-			;
-			; Bits needed by byte encder are:
+			; Bits needed by byte encoder are:
 			; b = 4 + c + d*w
 			;    where c = 8, d = phrase len
 			;
-
 			; pad  bytes 236 and 17 = 11101100b and  00010001b
-
             ;
             ; In 3-L QR-Code we have 55 octets for code words, which means
-            ; D can be 76 alphanumeric characters or 55 bytes.
+            ; D can be 55 byte mode characters.
             ;
-            ; B = alphanumeric string len in octets, 9 bits but only 7 bits can be used 
-            ;     i.e., 00 nnnnnnn -> A = 0nn nnnnn 
             ; B = byte string len in octets, 8 bits but only 7 will can be used.
             ;     i.e., 00 nnnnnnn -> A = 0nn nnnnn 
 			;
@@ -443,17 +415,16 @@ encode_phrase:
 			rld
 			djnz	.main
 			
-			; Add 0000b stop bot sequence
+			; Add 0000b stop bits sequence
 			xor		a		; Clears C_flag
 			rld
 			inc		hl
-
 
 			; Sequence is already byte aligned, so check if we need to pad..
             pop     de
 			push	hl
             sbc     hl,de
-            ld      a,55
+            ld      a,QR_CWDS
             sub     l
             and     a
 			pop		hl
@@ -468,37 +439,25 @@ encode_phrase:
             djnz    .pad
 
 .no_alignment:
-			;jr		_no_alignment
 
-
-
-
+;
 ; Polynomial division.
-;
-; Inputs:
-;  none
-;
-; Returns:
-;  DE = start of ecc words
-;
-; Trashes:
-;  A,B,C,H,L
 ;
 ; Note:
 ;  This routine does not handle the case where polynomial
 ;  is shorter than generator.
 ;  Everything is based on 3-L assumptions.
-
+;
 polydiv:    ;
 
             ld      hl,PHR_BUF_PTR
             ld      de,ENC_BUF_PTR
             ;
             ; Move polynomial into to ecc_buffer for division 
-            push    hl          ; polynomial
-            push    de          ; code words
-            push    de          ; ecc words
-            ld      bc,55
+            push    hl				; polynomial
+            push    de				; code words
+            push    de				; ecc words
+            ld      bc,QR_CWDS
             ldir
 
             ; Clear the rest of the ecc_buffer
@@ -509,7 +468,7 @@ polydiv:    ;
             djnz    .clear
 
             ; polynomial division main loop..
-            ld      c,55            ; "polylen"
+            ld      c,QR_CWDS		; "polylen"
             pop     hl
             ;
             ; HL = phrase i.e., polynomial
@@ -553,32 +512,19 @@ polydiv:    ;
             djnz    .div_loop
 
             ;
-            ;
-            pop     hl          ; ecc words
+            pop     hl			; ecc words
             dec     c
             jr nz,  .div_main
 
             ; move poly at the front of ECC
-            pop     de          ; code words
-            pop     hl          ; polynomial
+            pop     de			; code words
+            pop     hl			; polynomial
             ld      c,55
             ldir
-
-            ;ret				; flow to next routine
 
 ;
 ; Encode the QR-Code layout into the templete.
 ; The function also add the remaining 7 padding bits.
-;
-; Inputs:
-;  none
-;
-; Returns:
-;  None
-;
-; Trashes:
-;  A,BC,DE,HL,
-;
 ;
 encode_layout:
             ld      hl,qr_template_static_bits
@@ -638,8 +584,6 @@ encode_layout:
             dec     c
             jr nz,  .main
 
-            ;ret
-
 			pop		ix
 			pop		hl
 ;
@@ -657,15 +601,11 @@ encode_layout:
 ; Returns:
 ;  None.
 ;
-; Trashes:
-;  A,BC,HL,D
-;
-
 apply_mask:
-	IF MASK = 0
+			ld      c,QR_DIM
             ;ld      hl,QR_DST_PTR+QR_DST_SIZE-1
             ;ld		ix,qr_template_empty_bits+QR_DST_SIZE-1
-			ld      c,QR_DIM
+	IF MASK = 0
 			ld		d,01010101b
 .mask0_kernel:
 			ld		b,4
@@ -680,12 +620,8 @@ apply_mask:
             rlc		d
 			dec     c
             jr nz,	.mask0_kernel
-            ret
 	ENDIF
 	IF MASK = 1
-            ;ld      hl,QR_DST_PTR+QR_DST_SIZE-1
-            ;ld		ix,qr_template_empty_bits+QR_DST_SIZE-1
-			ld      c,QR_DIM
 			ld		d,11111111b
 .mask1_kernel:
 			ld		b,4
@@ -702,9 +638,8 @@ apply_mask:
 			ld		d,a
 			dec     c
             jr nz,	.mask1_kernel
-            ret
 	ENDIF
-
+            ret
 
 ;
 ; Return the next candidate position in the QR-Code matrix.
@@ -824,7 +759,7 @@ QR_DST_PTR: ds      QR_DST_SIZE		;
 GF_E2G_PTR: ds      256
 GF_G2E_PTR: ds      256
 
-
+	DISPLAY		"Code + static data size: ",/D,qr_end-qr_sta
 	SAVESNA		"qrcoder.sna",main
 
 

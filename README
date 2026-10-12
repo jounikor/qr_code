@@ -1,6 +1,6 @@
 
 
-QR-Code generator v0.1 (c) 2023 Jouni Korhonen
+QR-Code generator v0.2 (c) 2023-6 Jouni Korhonen
 
 A python3 package to generate QR-Codes for self learning purposes. Not
 styled or otherwise efficient solution. Sorry for lack of comments :)
@@ -29,7 +29,8 @@ The following files constitute the QR-Code generator:
   test.py           - A test program driving the QR-Code generation
   asm/qrcoder.asm   - A Z80 assembly implementation of the 3-L QR-Code
                       generation. Not a speed wonder if you choose auto mask
-                      selection.
+                      selection. This version is size optimized and implement
+					  byte mode phrase encoding.
 
 Thanks to following great tutorials and online encoders
 for providing testing possibility:

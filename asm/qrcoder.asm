@@ -80,17 +80,13 @@ main:
             ret
 
 
-;TEST_STR_LEN1	equ	22
 test_string1:
-;            db      "http://www.scoopex.us/"
 TEST_STR_LEN1	equ	34
             db      "https://www.deadcoderssociety.net/"
-
-;TEST_STR_LEN2	equ	29
-TEST_STR_LEN2	equ	43-1
+TEST_STR_LEN2	equ	43
 test_string2:
-			db		"http://www.youtube.com/watch?v=a_RNDL10ERg"
-			;db		"https://www.youtube.com/watch"
+			db		"https://www.youtube.com/watch?v=a_RNDL10ERg"
+
 	IFDEF TEST_SPECTRUM
 ;
 ; Render QR-Code (on ZX Spectrum..)
@@ -478,6 +474,9 @@ polydiv:    ;
             ; get 'ex' into A
             ld      a,(hl)
             inc     hl
+			or		a
+			jr z,	.zero_read
+
             ld      d,HIGH(GF_G2E_PTR)
             ld      e,a
             ld      a,(de)
@@ -513,13 +512,14 @@ polydiv:    ;
 
             ;
             pop     hl			; ecc words
+.zero_read:
             dec     c
             jr nz,  .div_main
 
             ; move poly at the front of ECC
             pop     de			; code words
             pop     hl			; polynomial
-            ld      c,55
+            ld      c,QR_CWDS
             ldir
 
 ;
